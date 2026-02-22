@@ -81,7 +81,10 @@ func listUsers(w http.ResponseWriter, r *http.Request) error {
 	}
 	total := 50
 
-	// Send paginated response
+	// Set RFC 5988 Link header for API clients
+	response.SetLinkHeader(w, "http://localhost:8080/api/v1/users", pg.Page, pg.PerPage, total)
+
+	// Send paginated response (HasNext/HasPrevious computed automatically)
 	response.Paginated(w, users, response.NewPageMeta(pg.Page, pg.PerPage, total))
 	return nil
 }

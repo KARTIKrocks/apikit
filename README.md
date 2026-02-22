@@ -150,6 +150,18 @@ reqID := request.RequestID(r)                     // X-Request-ID or X-Trace-ID
 // --- Pagination ---
 pg, err := request.Paginate(r)                   // ?page=2&per_page=25
 // pg.Page=2, pg.PerPage=25, pg.Offset=25
+// Also detects ?page_size=25 and ?limit=25 automatically
+
+// Navigation helpers (need total count from your DB)
+pg.HasNext(total)                                // true if more pages exist
+pg.HasPrevious()                                 // true if not first page
+pg.TotalPages(total)                             // total number of pages
+pg.NextPage()                                    // next page number
+pg.PreviousPage()                                // previous page number (min 1)
+
+// SQL helpers
+pg.SQLClause()                                   // "LIMIT 25 OFFSET 25"
+pg.SQLClauseMySQL()                              // "LIMIT 25, 25"
 
 cursor, err := request.PaginateCursor(r)         // ?cursor=abc&limit=25
 
@@ -212,6 +224,12 @@ response.New().
 
 // --- Paginated ---
 response.Paginated(w, users, response.NewPageMeta(page, perPage, total))
+// NewPageMeta auto-computes TotalPages, HasNext, and HasPrevious
+
+// Link header (RFC 5988) for API clients
+response.SetLinkHeader(w, "https://api.example.com/users", page, perPage, total)
+// Link: <...?page=2&per_page=20>; rel="next", <...?page=1&per_page=20>; rel="first", ...
+
 response.CursorPaginated(w, events, response.CursorMeta{
     NextCursor: "eyJpZCI6MTAwfQ==",
     HasMore:    true,
@@ -237,7 +255,7 @@ mux.HandleFunc("GET /users/{id}", response.Handle(getUser))
     "success": true,
     "message": "User created",
     "data": { "id": "123", "name": "Alice" },
-    "meta": { "page": 1, "per_page": 20, "total": 150, "total_pages": 8 },
+    "meta": { "page": 1, "per_page": 20, "total": 150, "total_pages": 8, "has_next": true, "has_previous": false },
     "timestamp": 1700000000
 }
 ```

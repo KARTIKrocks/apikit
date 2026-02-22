@@ -1,6 +1,7 @@
 package request
 
 import (
+	"fmt"
 	"net/http"
 )
 
@@ -8,7 +9,67 @@ import (
 type Pagination struct {
 	Page    int
 	PerPage int
-	Offset  int
+	Offset  int64
+}
+
+// HasNext returns true if there are more pages after the current one.
+func (p Pagination) HasNext(total int) bool {
+	return p.Page < p.TotalPages(total)
+}
+
+// HasPrevious returns true if there are pages before the current one.
+func (p Pagination) HasPrevious() bool {
+	return p.Page > 1
+}
+
+// IsFirstPage returns true if the current page is the first page.
+func (p Pagination) IsFirstPage() bool {
+	return p.Page == 1
+}
+
+// IsLastPage returns true if the current page is the last page.
+func (p Pagination) IsLastPage(total int) bool {
+	return p.Page >= p.TotalPages(total)
+}
+
+// TotalPages returns the total number of pages for the given total item count.
+func (p Pagination) TotalPages(total int) int {
+	if p.PerPage <= 0 {
+		return 0
+	}
+	tp := total / p.PerPage
+	if total%p.PerPage > 0 {
+		tp++
+	}
+	return tp
+}
+
+// NextPage returns the next page number (current page + 1).
+// It does not exceed math.MaxInt; callers should use HasNext to check bounds.
+func (p Pagination) NextPage() int {
+	return p.Page + 1
+}
+
+// PreviousPage returns the previous page number, minimum 1.
+func (p Pagination) PreviousPage() int {
+	if p.Page <= 1 {
+		return 1
+	}
+	return p.Page - 1
+}
+
+// SQLClause returns a PostgreSQL-style LIMIT/OFFSET clause.
+//
+//	p.SQLClause() // "LIMIT 20 OFFSET 40"
+func (p Pagination) SQLClause() string {
+	return fmt.Sprintf("LIMIT %d OFFSET %d", p.PerPage, p.Offset)
+}
+
+// SQLClauseMySQL returns a MySQL-style LIMIT clause.
+//
+//	p.SQLClauseMySQL() // "LIMIT 40, 20"
+func (p Pagination) SQLClauseMySQL() string {
+	return fmt.Sprintf("LIMIT %d, %d", p.Offset, p.PerPage)
 }
 
 // PaginationConfig configures pagination defaults and limits.
@@ -16,8 +77,11 @@ type PaginationConfig struct {
 	DefaultPage    int
 	DefaultPerPage int
 	MaxPerPage     int
-	PageParam      string
-	PerPageParam   string
+	PageParam string
+	// PerPageParams lists parameter names to try in order for per-page detection.
+	// The first matching non-empty parameter wins. If empty, defaults to
+	// ["per_page", "page_size", "limit"].
+	PerPageParams []string
 }
 
 // DefaultPaginationConfig returns sensible defaults.
@@ -27,7 +91,7 @@ func DefaultPaginationConfig() PaginationConfig {
 		DefaultPerPage: 20,
 		MaxPerPage:     100,
 		PageParam:      "page",
-		PerPageParam:   "per_page",
+		PerPageParams:  []string{"per_page", "page_size", "limit"},
 	}
 }
 
@@ -47,8 +111,8 @@ func SetPaginationConfig(cfg PaginationConfig) {
 	if cfg.PageParam == "" {
 		cfg.PageParam = "page"
 	}
-	if cfg.PerPageParam == "" {
-		cfg.PerPageParam = "per_page"
+	if len(cfg.PerPageParams) == 0 {
+		cfg.PerPageParams = []string{"per_page", "page_size", "limit"}
 	}
 	globalPaginationConfig = cfg
 }
@@ -72,15 +136,29 @@ func PaginateWithConfig(r *http.Request, cfg PaginationConfig) (Pagination, erro
 		return Pagination{}, err
 	}
 
-	perPage, err := q.IntRange(cfg.PerPageParam, cfg.DefaultPerPage, 1, cfg.MaxPerPage)
-	if err != nil {
-		return Pagination{}, err
+	// Multi-param detection: try each param name in order.
+	params := cfg.PerPageParams
+	if len(params) == 0 {
+		params = []string{"per_page", "page_size", "limit"}
+	}
+
+	perPage := cfg.DefaultPerPage
+	for _, param := range params {
+		val := q.values.Get(param)
+		if val != "" {
+			parsed, parseErr := q.IntRange(param, cfg.DefaultPerPage, 1, cfg.MaxPerPage)
+			if parseErr != nil {
+				return Pagination{}, parseErr
+			}
+			perPage = parsed
+			break
+		}
 	}
 
 	return Pagination{
 		Page:    page,
 		PerPage: perPage,
-		Offset:  (page - 1) * perPage,
+		Offset:  int64(page-1) * int64(perPage),
 	}, nil
 }
 
