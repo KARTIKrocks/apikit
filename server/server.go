@@ -21,6 +21,7 @@ type Server struct {
 	onStart         []func() error
 	onShutdown      []func(ctx context.Context) error
 	shutdownCh      chan struct{} // signals Shutdown was called programmatically
+	doneCh          chan struct{} // closed when Start() returns
 }
 
 // Option configures a Server.
@@ -39,6 +40,7 @@ func New(handler http.Handler, opts ...Option) *Server {
 		shutdownTimeout: 30 * time.Second,
 		logger:          slog.Default(),
 		shutdownCh:      make(chan struct{}, 1),
+		doneCh:          make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -161,14 +163,23 @@ func (s *Server) Start() error {
 	}
 
 	s.logger.Info("server stopped")
+	close(s.doneCh)
 	return nil
 }
 
-// Shutdown triggers a graceful shutdown of the server.
+// Shutdown triggers a graceful shutdown of the server and blocks until
+// the shutdown completes or the context expires.
 func (s *Server) Shutdown(ctx context.Context) error {
 	select {
 	case s.shutdownCh <- struct{}{}:
 	default:
 	}
-	return nil
+
+	// Wait for Start() to finish or context to expire.
+	select {
+	case <-s.doneCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

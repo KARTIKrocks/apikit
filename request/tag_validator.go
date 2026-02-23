@@ -376,10 +376,15 @@ func stringVal(val reflect.Value) string {
 
 // --- Shared validation helpers (used by both tag engine and Validation builder) ---
 
-// IsValidEmail checks whether s is a valid email address using net/mail.
+// IsValidEmail checks whether s is a valid bare email address.
+// It rejects display-name formats like "Alice <alice@example.com>".
 func IsValidEmail(s string) bool {
-	_, err := mail.ParseAddress(s)
-	return err == nil
+	addr, err := mail.ParseAddress(s)
+	if err != nil {
+		return false
+	}
+	// Reject display-name format — only accept bare addresses.
+	return addr.Address == s
 }
 
 // IsValidURL checks whether s is a valid absolute URL.

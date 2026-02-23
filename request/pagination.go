@@ -3,6 +3,7 @@ package request
 import (
 	"fmt"
 	"net/http"
+	"sync"
 )
 
 // Pagination holds parsed pagination parameters.
@@ -95,7 +96,10 @@ func DefaultPaginationConfig() PaginationConfig {
 	}
 }
 
-var globalPaginationConfig = DefaultPaginationConfig()
+var (
+	globalPaginationConfig   = DefaultPaginationConfig()
+	globalPaginationConfigMu sync.RWMutex
+)
 
 // SetPaginationConfig sets the global pagination configuration.
 func SetPaginationConfig(cfg PaginationConfig) {
@@ -114,7 +118,17 @@ func SetPaginationConfig(cfg PaginationConfig) {
 	if len(cfg.PerPageParams) == 0 {
 		cfg.PerPageParams = []string{"per_page", "page_size", "limit"}
 	}
+	globalPaginationConfigMu.Lock()
 	globalPaginationConfig = cfg
+	globalPaginationConfigMu.Unlock()
+}
+
+// getPaginationConfig returns a snapshot of the global pagination configuration.
+func getPaginationConfig() PaginationConfig {
+	globalPaginationConfigMu.RLock()
+	cfg := globalPaginationConfig
+	globalPaginationConfigMu.RUnlock()
+	return cfg
 }
 
 // Paginate parses pagination parameters from the request query string.
@@ -124,7 +138,7 @@ func SetPaginationConfig(cfg PaginationConfig) {
 //	p, err := request.Paginate(r)
 //	// p.Page=2, p.PerPage=25, p.Offset=25
 func Paginate(r *http.Request) (Pagination, error) {
-	return PaginateWithConfig(r, globalPaginationConfig)
+	return PaginateWithConfig(r, getPaginationConfig())
 }
 
 // PaginateWithConfig parses pagination with custom config.

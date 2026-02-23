@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-02-23
+
+### Fixed
+
+- **request** — Race condition on `globalConfig` and `globalPaginationConfig` — added `sync.RWMutex` guards
+- **middleware** — Logger `responseWriter` forwarded duplicate `WriteHeader` calls to underlying writer
+- **middleware** — `Retry-After` header was hardcoded to `"60"` regardless of configured rate limit window
+- **middleware** — `itoa` helper caused infinite recursion on `math.MinInt` — replaced with `strconv.Itoa`
+- **httpclient** — Integer overflow in retry delay calculation when attempt count exceeded 62
+- **httpclient** — Circuit breaker allowed multiple concurrent probes in half-open state (TOCTOU)
+- **response** — `File()` Content-Disposition header injection on non-ASCII filenames — added RFC 5987 encoding
+- **server** — `Shutdown()` returned immediately instead of waiting for graceful shutdown to complete
+- **request** — `IsValidEmail` accepted display-name formats like `"Alice" <a@b.com>` — now requires bare address
+- **apitest** — `RequestBuilder.Build()` used `Header.Set` in loop, dropping multi-value headers — changed to `Header.Add`
+
 ## [0.4.0] - 2026-02-23
 
 ### Added

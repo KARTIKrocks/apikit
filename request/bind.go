@@ -24,6 +24,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/KARTIKrocks/apikit/errors"
 )
@@ -52,14 +53,27 @@ func DefaultConfig() Config {
 }
 
 // global config, can be overridden via SetConfig.
-var globalConfig = DefaultConfig()
+var (
+	globalConfig   = DefaultConfig()
+	globalConfigMu sync.RWMutex
+)
 
 // SetConfig sets the global binding configuration.
 func SetConfig(cfg Config) {
 	if cfg.MaxBodySize <= 0 {
 		cfg.MaxBodySize = DefaultMaxBodySize
 	}
+	globalConfigMu.Lock()
 	globalConfig = cfg
+	globalConfigMu.Unlock()
+}
+
+// getConfig returns a snapshot of the global binding configuration.
+func getConfig() Config {
+	globalConfigMu.RLock()
+	cfg := globalConfig
+	globalConfigMu.RUnlock()
+	return cfg
 }
 
 // Bind decodes the JSON request body into T using the global config.
@@ -67,7 +81,7 @@ func SetConfig(cfg Config) {
 //
 //	user, err := request.Bind[CreateUserReq](r)
 func Bind[T any](r *http.Request) (T, error) {
-	return BindWithConfig[T](r, globalConfig)
+	return BindWithConfig[T](r, getConfig())
 }
 
 // BindWithConfig decodes the JSON request body into T using the provided config.
@@ -145,7 +159,8 @@ func DecodeJSON(r *http.Request, v any) error {
 		return errors.BadRequest("Request body is required")
 	}
 
-	maxSize := globalConfig.MaxBodySize
+	cfg := getConfig()
+	maxSize := cfg.MaxBodySize
 	if maxSize <= 0 {
 		maxSize = DefaultMaxBodySize
 	}
@@ -164,7 +179,7 @@ func DecodeJSON(r *http.Request, v any) error {
 	_ = r.Body.Close()
 
 	decoder := json.NewDecoder(bytes.NewReader(body))
-	if globalConfig.DisallowUnknownFields {
+	if cfg.DisallowUnknownFields {
 		decoder.DisallowUnknownFields()
 	}
 
