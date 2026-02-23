@@ -114,7 +114,12 @@ func BindWithConfig[T any](r *http.Request, cfg Config) (T, error) {
 		return v, handleDecodeError(err)
 	}
 
-	// Auto-validate if T implements Validator
+	// Run struct tag validation (simple rules)
+	if err := ValidateStruct(&v); err != nil {
+		return v, err
+	}
+
+	// Auto-validate if T implements Validator (cross-field logic)
 	if validator, ok := any(&v).(Validator); ok {
 		if err := validator.Validate(); err != nil {
 			return v, err
@@ -165,6 +170,11 @@ func DecodeJSON(r *http.Request, v any) error {
 
 	if err := decoder.Decode(v); err != nil {
 		return handleDecodeError(err)
+	}
+
+	// Run struct tag validation
+	if err := ValidateStruct(v); err != nil {
+		return err
 	}
 
 	return nil
