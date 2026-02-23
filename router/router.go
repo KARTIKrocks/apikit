@@ -159,7 +159,7 @@ func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 
-	json.NewEncoder(w).Encode(errorEnvelope{
+	_ = json.NewEncoder(w).Encode(errorEnvelope{
 		Success: false,
 		Error: &errorBody{
 			Code:    errCode,
