@@ -1,6 +1,9 @@
 package request
 
 import (
+	"slices"
+	"regexp"
+
 	"github.com/KARTIKrocks/apikit/errors"
 )
 
@@ -96,10 +99,8 @@ func (v *Validation) Range(field string, value, min, max int) {
 
 // OneOf validates that a string is one of the allowed values.
 func (v *Validation) OneOf(field, value string, allowed []string) {
-	for _, a := range allowed {
-		if value == a {
-			return
-		}
+	if slices.Contains(allowed, value) {
+		return
 	}
 	v.AddError(field, "is not a valid value")
 }
@@ -107,6 +108,49 @@ func (v *Validation) OneOf(field, value string, allowed []string) {
 // Custom allows adding a custom validation check.
 func (v *Validation) Custom(field string, check func() bool, message string) {
 	if !check() {
+		v.AddError(field, message)
+	}
+}
+
+// RequireEmail validates that a string field is non-empty and a valid email address.
+func (v *Validation) RequireEmail(field, value string) {
+	if value == "" {
+		v.AddError(field, "is required")
+		return
+	}
+	if !IsValidEmail(value) {
+		v.AddError(field, "must be a valid email address")
+	}
+}
+
+// RequireURL validates that a string field is non-empty and a valid URL.
+func (v *Validation) RequireURL(field, value string) {
+	if value == "" {
+		v.AddError(field, "is required")
+		return
+	}
+	if !IsValidURL(value) {
+		v.AddError(field, "must be a valid URL")
+	}
+}
+
+// UUID validates that a string is a valid UUID format.
+func (v *Validation) UUID(field, value string) {
+	if value == "" {
+		return
+	}
+	if !IsValidUUID(value) {
+		v.AddError(field, "must be a valid UUID")
+	}
+}
+
+// MatchesPattern validates that a string matches the given regex pattern.
+func (v *Validation) MatchesPattern(field, value, pattern, message string) {
+	if value == "" {
+		return
+	}
+	matched, err := regexp.MatchString(pattern, value)
+	if err != nil || !matched {
 		v.AddError(field, message)
 	}
 }

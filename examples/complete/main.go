@@ -25,17 +25,17 @@ type User struct {
 }
 
 type CreateUserRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name  string `json:"name" validate:"required,min=2,max=100"`
+	Email string `json:"email" validate:"required,email"`
 }
 
-// Validate implements request.Validator
+// Validate implements request.Validator for cross-field logic.
+// Bind[T] calls this automatically after struct tag validation passes.
 func (r CreateUserRequest) Validate() error {
 	v := request.NewValidation()
-	v.RequireString("name", r.Name)
-	v.MinLength("name", r.Name, 2)
-	v.MaxLength("name", r.Name, 100)
-	v.RequireString("email", r.Email)
+	v.Custom("email", func() bool {
+		return r.Email != r.Name
+	}, "must be different from name")
 	return v.Error()
 }
 
@@ -91,15 +91,10 @@ func listUsers(w http.ResponseWriter, r *http.Request) error {
 
 // createUser handles POST /api/v1/users
 func createUser(w http.ResponseWriter, r *http.Request) error {
-	// Bind and decode request body
+	// Bind, decode, and validate request body (struct tags are validated automatically)
 	req, err := request.Bind[CreateUserRequest](r)
 	if err != nil {
 		return err
-	}
-
-	// Validate
-	if verr := req.Validate(); verr != nil {
-		return verr
 	}
 
 	// Simulate duplicate check

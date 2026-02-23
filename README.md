@@ -39,8 +39,8 @@ import (
 )
 
 type CreateUserReq struct {
-    Name  string `json:"name"`
-    Email string `json:"email"`
+    Name  string `json:"name" validate:"required,min=2"`
+    Email string `json:"email" validate:"required,email"`
 }
 
 func createUser(w http.ResponseWriter, r *http.Request) error {
@@ -177,11 +177,25 @@ filters, err := request.ParseFilters(r, request.FilterConfig{
 })
 // ?filter[status]=active&filter[age][gte]=18
 
-// --- Validation ---
+// --- Struct tag validation (automatic in Bind[T]) ---
+type CreateUserReq struct {
+    Name  string `json:"name" validate:"required,min=2,max=100"`
+    Email string `json:"email" validate:"required,email"`
+    Role  string `json:"role" validate:"oneof=admin user mod"`
+}
+// Bind[T] automatically validates tags before returning.
+// Supported: required, email, url, min, max, len, oneof, alpha,
+//            alphanum, numeric, uuid, contains, startswith, endswith
+
+// --- Programmatic validation (for cross-field logic) ---
 v := request.NewValidation()
 v.RequireString("name", req.Name)
+v.RequireEmail("email", req.Email)
+v.RequireURL("website", req.Website)
+v.UUID("id", req.ID)
 v.MinLength("name", req.Name, 2)
 v.OneOf("role", req.Role, []string{"admin", "user", "mod"})
+v.MatchesPattern("code", req.Code, `^[A-Z]{3}-\d{4}$`, "must match format XXX-0000")
 v.Custom("end_date", func() bool {
     return req.EndDate.After(req.StartDate)
 }, "must be after start_date")
