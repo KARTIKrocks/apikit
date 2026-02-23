@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"strings"
 
 	"github.com/KARTIKrocks/apikit/errors"
 )
@@ -82,9 +84,21 @@ func File(w http.ResponseWriter, filename string, data []byte, contentType strin
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+
+	name := filepath.Base(filename)
+
+	// Sanitize filename: remove characters unsafe in Content-Disposition.
+	safeName := strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || r < 0x20 {
+			return '_'
+		}
+		return r
+	}, name)
+
 	w.Header().Set("Content-Type", contentType)
+	// ASCII-safe filename for broad compatibility, plus RFC 5987 UTF-8 variant.
 	w.Header().Set("Content-Disposition",
-		fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(filename)))
+		fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, safeName, url.PathEscape(name)))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)

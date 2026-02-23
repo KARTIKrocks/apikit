@@ -30,6 +30,8 @@ Requires **Go 1.22+**.
 package main
 
 import (
+    "context"
+    "log"
     "net/http"
     "time"
 
@@ -38,6 +40,7 @@ import (
     "github.com/KARTIKrocks/apikit/request"
     "github.com/KARTIKrocks/apikit/response"
     "github.com/KARTIKrocks/apikit/router"
+    "github.com/KARTIKrocks/apikit/server"
 )
 
 type CreateUserReq struct {
@@ -71,7 +74,19 @@ func main() {
 
     r.Post("/users", createUser)
 
-    http.ListenAndServe(":8080", r)
+    // Graceful shutdown with signal handling (SIGINT/SIGTERM)
+    srv := server.New(r, server.WithAddr(":8080"))
+    srv.OnStart(func() error {
+        log.Println("server started...")
+        return nil
+    })
+    srv.OnShutdown(func(ctx context.Context) error {
+        log.Println("closing database...")
+        return nil // db.Close()
+    })
+    if err := srv.Start(); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 

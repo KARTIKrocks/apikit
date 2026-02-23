@@ -3,6 +3,7 @@ package middleware
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -80,7 +81,7 @@ func RateLimit(cfg RateLimitConfig) Middleware {
 			key := cfg.KeyFunc(r)
 
 			if !cfg.Limiter.Allow(key) {
-				w.Header().Set("Retry-After", "60")
+				w.Header().Set("Retry-After", strconv.Itoa(int(cfg.Window.Seconds())))
 				response.Err(w, errors.RateLimited(cfg.Message))
 				return
 			}

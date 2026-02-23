@@ -91,7 +91,7 @@ func (b *RequestBuilder) Build() *http.Request {
 
 	for key, values := range b.headers {
 		for _, v := range values {
-			req.Header.Set(key, v)
+			req.Header.Add(key, v)
 		}
 	}
 

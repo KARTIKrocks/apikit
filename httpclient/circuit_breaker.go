@@ -18,11 +18,12 @@ const (
 
 // CircuitBreaker implements the circuit breaker pattern
 type CircuitBreaker struct {
-	mu sync.RWMutex
+	mu sync.Mutex
 
 	state           CircuitState
 	failureCount    int
 	successCount    int
+	halfOpenAllowed bool // true when a half-open probe slot is available
 	threshold       int
 	timeout         time.Duration
 	lastFailureTime time.Time
@@ -66,11 +67,18 @@ func (cb *CircuitBreaker) allowRequest() bool {
 		if time.Since(cb.lastFailureTime) > cb.timeout {
 			cb.state = StateHalfOpen
 			cb.successCount = 0
+			cb.halfOpenAllowed = true
+		} else {
+			return false
+		}
+		fallthrough
+	case StateHalfOpen:
+		// Only allow one probe request at a time in half-open state.
+		if cb.halfOpenAllowed {
+			cb.halfOpenAllowed = false
 			return true
 		}
 		return false
-	case StateHalfOpen:
-		return true
 	}
 
 	return false
@@ -86,6 +94,9 @@ func (cb *CircuitBreaker) onSuccess() {
 		if cb.successCount >= cb.threshold {
 			cb.state = StateClosed
 			cb.failureCount = 0
+		} else {
+			// Allow another probe request.
+			cb.halfOpenAllowed = true
 		}
 	}
 }
@@ -111,8 +122,8 @@ func (cb *CircuitBreaker) onFailure() {
 
 // State returns current circuit state
 func (cb *CircuitBreaker) State() CircuitState {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	return cb.state
 }
 

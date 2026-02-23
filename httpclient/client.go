@@ -272,7 +272,12 @@ func (c *Client) executeRequest(ctx context.Context, method, path string, body a
 
 // calculateRetryDelay calculates delay with exponential backoff.
 func (c *Client) calculateRetryDelay(attempt int) time.Duration {
-	delay := c.retryDelay * time.Duration(1<<uint(attempt-1))
+	shift := attempt - 1
+	// Prevent overflow: 1<<63 flips the sign bit on 64-bit integers.
+	if shift >= 62 {
+		return c.maxRetryDelay
+	}
+	delay := c.retryDelay * time.Duration(1<<uint(shift))
 	if c.maxRetryDelay > 0 && delay > c.maxRetryDelay {
 		delay = c.maxRetryDelay
 	}

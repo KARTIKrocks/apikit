@@ -111,10 +111,11 @@ type responseWriter struct {
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
-	if !rw.written {
-		rw.statusCode = code
-		rw.written = true
+	if rw.written {
+		return
 	}
+	rw.statusCode = code
+	rw.written = true
 	rw.ResponseWriter.WriteHeader(code)
 }
 
