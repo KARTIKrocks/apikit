@@ -45,29 +45,6 @@ func HandleWith(fn HandlerFunc, onError func(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// Wrap wraps a standard http.HandlerFunc so that any error passed to
-// Err or the error convenience helpers is automatically written as a
-// structured JSON response. Use this when you prefer the standard
-// handler signature with no return type.
-//
-//	mux.HandleFunc("GET /users/{id}", response.Wrap(getUser))
-//
-//	func getUser(w http.ResponseWriter, r *http.Request) {
-//	    id := request.PathParam(r, "id")
-//	    user, err := db.FindUser(id)
-//	    if err != nil {
-//	        response.Err(w, errors.NotFound("User"))
-//	        return
-//	    }
-//	    response.OK(w, "Success", user)
-//	}
-//
-// Wrap is a thin pass-through today, but it future-proofs your handlers
-// for middleware features like response capture or panic recovery.
-func Wrap(fn http.HandlerFunc) http.HandlerFunc {
-	return fn
-}
-
 // handleError converts an error to an HTTP response.
 // Uses errors.As to correctly handle wrapped errors (e.g., fmt.Errorf("...: %w", apiErr)).
 func handleError(w http.ResponseWriter, err error) {

@@ -12,6 +12,7 @@ import (
 	"github.com/KARTIKrocks/apikit/middleware"
 	"github.com/KARTIKrocks/apikit/request"
 	"github.com/KARTIKrocks/apikit/response"
+	"github.com/KARTIKrocks/apikit/router"
 	"github.com/KARTIKrocks/apikit/server"
 )
 
@@ -209,8 +210,24 @@ func main() {
 		DisallowUnknownFields: true,
 	})
 
-	// Build middleware stack
-	stack := middleware.Chain(
+	// Auth middleware (for protected routes)
+	auth := middleware.Auth(middleware.AuthConfig{
+		Authenticate: func(ctx context.Context, token string) (any, error) {
+			// In real app: verify JWT, lookup user
+			if token == "valid-token" {
+				return &User{ID: "1", Name: "Alice", Role: "admin"}, nil
+			}
+			return nil, errors.Unauthorized("Invalid or expired token")
+		},
+		SkipPaths: map[string]bool{
+			"/health":       true,
+			"/api/v1/login": true,
+		},
+	})
+
+	// Create router with global middleware
+	r := router.New()
+	r.Use(
 		middleware.RequestID(),
 		middleware.Logger(logger),
 		middleware.Recover(),
@@ -231,46 +248,23 @@ func main() {
 		middleware.BodyLimit(5<<20),
 	)
 
-	// Auth middleware (for protected routes)
-	auth := middleware.Auth(middleware.AuthConfig{
-		Authenticate: func(ctx context.Context, token string) (any, error) {
-			// In real app: verify JWT, lookup user
-			if token == "valid-token" {
-				return &User{ID: "1", Name: "Alice", Role: "admin"}, nil
-			}
-			return nil, errors.Unauthorized("Invalid or expired token")
-		},
-		SkipPaths: map[string]bool{
-			"/health":         true,
-			"/api/v1/login":   true,
-		},
-	})
-
-	// Setup routes (Go 1.22+ enhanced routing)
-	mux := http.NewServeMux()
-
 	// Public routes
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) error {
 		response.OK(w, "OK", map[string]string{"status": "healthy"})
+		return nil
 	})
 
 	// Protected API routes
-	api := http.NewServeMux()
-	api.HandleFunc("GET /api/v1/users", response.Handle(listUsers))
-	api.HandleFunc("POST /api/v1/users", response.Handle(createUser))
-	api.HandleFunc("GET /api/v1/users/{id}", getUser)                       // standard (w, r) pattern
-	api.HandleFunc("PUT /api/v1/users/{id}", response.Handle(updateUser))    // error-returning pattern
-	api.HandleFunc("DELETE /api/v1/users/{id}", deleteUser)                  // standard (w, r) pattern
-	api.HandleFunc("GET /api/v1/events/stream", response.Handle(streamEvents))
-	api.HandleFunc("GET /api/v1/users/{id}/builder", response.Handle(getUserWithBuilder)) // builder pattern
+	api := r.Group("/api/v1", auth)
+	api.Get("/users", listUsers)
+	api.Post("/users", createUser)
+	api.GetFunc("/users/{id}", getUser)       // stdlib handler (no error return)
+	api.Put("/users/{id}", updateUser)        // error-returning pattern
+	api.DeleteFunc("/users/{id}", deleteUser) // stdlib handler (no error return)
+	api.Get("/events/stream", streamEvents)
+	api.Get("/users/{id}/builder", getUserWithBuilder) // builder pattern
 
-	// Compose: public routes + auth-protected API routes
-	mux.Handle("/api/", auth(api))
-
-	// Apply global middleware stack
-	handler := stack(mux)
-
-	srv := server.New(handler,
+	srv := server.New(r,
 		server.WithAddr(":8080"),
 		server.WithReadTimeout(15*time.Second),
 		server.WithWriteTimeout(60*time.Second),

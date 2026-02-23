@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-23
+
+### Added
+
+- **router** — New `router` package with route grouping and method helpers on top of `http.ServeMux`
+- **router** — Method helpers: `Get`, `Post`, `Put`, `Patch`, `Delete` — accept `func(w, r) error` handlers
+- **router** — Stdlib variants: `GetFunc`, `PostFunc`, `PutFunc`, `PatchFunc`, `DeleteFunc` — accept `http.HandlerFunc`
+- **router** — `Group(prefix, ...middleware)` for prefix-based route grouping with per-group middleware
+- **router** — Nested groups accumulate prefix and middleware (root → parent → child ordering)
+- **router** — `Handle`/`HandleFunc` stdlib escape hatches for `http.Handler`/`http.HandlerFunc`
+- **router** — `Use()` adds middleware to subsequently registered routes (matches chi/echo/gin behavior)
+- **router** — `DefaultErrorHandler` writes JSON error envelope matching `response.Err` format, extracts `*errors.Error` via `errors.As`
+- **router** — `WithErrorHandler` option for custom error handling
+- **router** — Implements `http.Handler` — drop-in replacement for `http.ServeMux` with `server.New(r)`
+
+### Removed
+
+- **response** — Removed `Wrap` function (was a no-op pass-through; use `router.GetFunc`/`PostFunc` etc. instead)
+
 ## [0.3.0] - 2026-02-23
 
 ### Added
