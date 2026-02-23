@@ -12,6 +12,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`response`** — Consistent JSON envelope, fluent builder, pagination helpers, SSE streaming
 - **`middleware`** — Request ID, logging, panic recovery, CORS, rate limiting, auth, security headers, timeout
 - **`httpclient`** — HTTP client with retries, exponential backoff, circuit breaker, and `HTTPClient` interface for mocking
+- **`router`** — Route grouping with `.Get()`/`.Post()` method helpers, prefix groups, and per-group middleware on top of `http.ServeMux`
 - **`server`** — Graceful shutdown wrapper with signal handling and lifecycle hooks
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
 
@@ -36,6 +37,7 @@ import (
     "github.com/KARTIKrocks/apikit/middleware"
     "github.com/KARTIKrocks/apikit/request"
     "github.com/KARTIKrocks/apikit/response"
+    "github.com/KARTIKrocks/apikit/router"
 )
 
 type CreateUserReq struct {
@@ -60,16 +62,16 @@ func createUser(w http.ResponseWriter, r *http.Request) error {
 }
 
 func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("POST /users", response.Handle(createUser))
-
-    stack := middleware.Chain(
+    r := router.New()
+    r.Use(
         middleware.RequestID(),
         middleware.Recover(),
         middleware.Timeout(30 * time.Second),
     )
 
-    http.ListenAndServe(":8080", stack(mux))
+    r.Post("/users", createUser)
+
+    http.ListenAndServe(":8080", r)
 }
 ```
 
@@ -266,13 +268,65 @@ mux.HandleFunc("GET /users/{id}", response.Handle(getUser))
 
 ```json
 {
-    "success": true,
-    "message": "User created",
-    "data": { "id": "123", "name": "Alice" },
-    "meta": { "page": 1, "per_page": 20, "total": 150, "total_pages": 8, "has_next": true, "has_previous": false },
-    "timestamp": 1700000000
+  "success": true,
+  "message": "User created",
+  "data": { "id": "123", "name": "Alice" },
+  "meta": {
+    "page": 1,
+    "per_page": 20,
+    "total": 150,
+    "total_pages": 8,
+    "has_next": true,
+    "has_previous": false
+  },
+  "timestamp": 1700000000
 }
 ```
+
+### router
+
+Route grouping and method helpers on top of `http.ServeMux`.
+
+```go
+import "github.com/KARTIKrocks/apikit/router"
+
+// Create a router (implements http.Handler)
+r := router.New()
+
+// Global middleware
+r.Use(middleware.RequestID(), middleware.Logger(slog.Default()))
+
+// Method helpers — handlers return error
+r.Get("/health", func(w http.ResponseWriter, r *http.Request) error {
+    response.OK(w, "OK", nil)
+    return nil
+})
+
+// Standard http.HandlerFunc (no error return) — use GetFunc/PostFunc/etc.
+r.GetFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+    response.OK(w, "OK", map[string]string{"version": "1.0.0"})
+})
+
+// Route groups with prefix and per-group middleware
+api := r.Group("/api/v1", authMiddleware)
+api.Get("/users", listUsers)
+api.Post("/users", createUser)
+api.GetFunc("/users/{id}", getUser)     // stdlib handler
+
+// Nested groups accumulate prefix and middleware
+admin := api.Group("/admin", adminOnly)
+admin.Delete("/users/{id}", deleteUser)
+// Registers "DELETE /api/v1/admin/users/{id}" with auth + adminOnly middleware
+
+// Handle/HandleFunc for http.Handler (e.g. file servers)
+api.Handle("GET /docs", http.FileServer(http.Dir("./docs")))
+
+// Use with server package
+srv := server.New(r, server.WithAddr(":8080"))
+srv.Start()
+```
+
+Middleware is resolved at registration time. `Use()` only applies to routes registered after the call, matching chi/echo/gin behavior.
 
 ### middleware
 
@@ -450,14 +504,14 @@ fmt.Println(env.Success, env.Message)
 
 ## Design Principles
 
-| Principle | How |
-|---|---|
-| **stdlib compatible** | Works with `http.Handler`, `http.HandlerFunc`, any router |
-| **Zero dependencies** | Core uses only the Go standard library |
-| **Generics** | `Bind[T]`, `GetAuthUserAs[T]` for type safety |
-| **Interface-driven** | `RateLimiter`, `Logger` interfaces — plug in your own backends |
-| **Composable** | Each package is independently usable |
-| **Go 1.22+** | Leverages enhanced `http.ServeMux` routing |
+| Principle             | How                                                            |
+| --------------------- | -------------------------------------------------------------- |
+| **stdlib compatible** | Works with `http.Handler`, `http.HandlerFunc`, any router      |
+| **Zero dependencies** | Core uses only the Go standard library                         |
+| **Generics**          | `Bind[T]`, `GetAuthUserAs[T]` for type safety                  |
+| **Interface-driven**  | `RateLimiter`, `Logger` interfaces — plug in your own backends |
+| **Composable**        | Each package is independently usable                           |
+| **Go 1.22+**          | Leverages enhanced `http.ServeMux` routing                     |
 
 ## Roadmap
 
@@ -467,4 +521,4 @@ fmt.Println(env.Success, env.Message)
 
 ## License
 
-MIT
+[MIT](LICENSE)
