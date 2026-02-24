@@ -14,6 +14,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`httpclient`** — HTTP client with retries, exponential backoff, circuit breaker, and `HTTPClient` interface for mocking
 - **`router`** — Route grouping with `.Get()`/`.Post()` method helpers, prefix groups, and per-group middleware on top of `http.ServeMux`
 - **`server`** — Graceful shutdown wrapper with signal handling, lifecycle hooks, and TLS support
+- **`health`** — Health check endpoint builder with dependency checks, timeouts, and liveness/readiness probes
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
 
 ## Install
@@ -518,6 +519,53 @@ if err := srv.Start(); err != nil {
 }
 ```
 
+### health
+
+Health check endpoints for Kubernetes probes and load balancers.
+
+```go
+import "github.com/KARTIKrocks/apikit/health"
+
+// Create a checker with a per-check timeout
+h := health.NewChecker(health.WithTimeout(3 * time.Second))
+
+// Critical checks — failure → "unhealthy" (503)
+h.AddCheck("postgres", func(ctx context.Context) error {
+    return db.PingContext(ctx)
+})
+
+// Non-critical checks — failure → "degraded" (200)
+h.AddNonCriticalCheck("redis", func(ctx context.Context) error {
+    return rdb.Ping(ctx).Err()
+})
+
+// Register with your router
+r.Get("/health", h.Handler())          // Full check (readiness)
+r.Get("/health/live", h.LiveHandler()) // Always 200 (liveness)
+
+// Programmatic use
+resp := h.Check(context.Background())
+fmt.Println(resp.Status) // "healthy", "degraded", or "unhealthy"
+```
+
+**Response format:**
+
+```json
+{
+  "success": true,
+  "message": "Health check",
+  "data": {
+    "status": "healthy",
+    "checks": {
+      "postgres": { "status": "healthy", "duration_ms": 2 },
+      "redis":    { "status": "healthy", "duration_ms": 1 }
+    },
+    "timestamp": 1700000000
+  },
+  "timestamp": 1700000000
+}
+```
+
 ### apitest
 
 Fluent test helpers for building requests and asserting responses against your handlers.
@@ -567,7 +615,7 @@ fmt.Println(env.Success, env.Message)
 
 ## Roadmap
 
-- [ ] `health` — Health check endpoint builder with dependency checks
+- [x] `health` — Health check endpoint builder with dependency checks
 - [ ] `ctxutil` — Typed context helpers
 - [ ] `observe` — OpenTelemetry integration
 
