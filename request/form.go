@@ -200,7 +200,7 @@ func setFieldValue(fieldVal reflect.Value, field reflect.StructField, key string
 		fieldVal.SetString(raw)
 
 	case reflect.Bool:
-		b, err := strconv.ParseBool(raw)
+		b, err := parseBool(raw)
 		if err != nil {
 			return errors.BadRequest(fmt.Sprintf("Field %q: invalid boolean value", key)).
 				WithField(key, "must be a boolean")
@@ -238,5 +238,18 @@ func setFieldValue(fieldVal reflect.Value, field reflect.StructField, key string
 	}
 
 	return nil
+}
+
+// parseBool extends strconv.ParseBool with HTML-specific values.
+// Accepts everything strconv.ParseBool does plus "on"/"off" and "yes"/"no".
+func parseBool(s string) (bool, error) {
+	switch strings.ToLower(s) {
+	case "on", "yes":
+		return true, nil
+	case "off", "no":
+		return false, nil
+	default:
+		return strconv.ParseBool(s)
+	}
 }
 

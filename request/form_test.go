@@ -161,6 +161,103 @@ func TestDecodeFormValues_Skip(t *testing.T) {
 	}
 }
 
+func TestDecodeFormValues_BoolHTMLValues(t *testing.T) {
+	type boolForm struct {
+		A bool `form:"a"`
+		B bool `form:"b"`
+		C bool `form:"c"`
+		D bool `form:"d"`
+	}
+	tests := []struct {
+		name string
+		val  string
+		want bool
+	}{
+		{"on", "on", true},
+		{"ON", "ON", true},
+		{"off", "off", false},
+		{"yes", "yes", true},
+		{"no", "no", false},
+		{"true", "true", true},
+		{"false", "false", false},
+		{"1", "1", true},
+		{"0", "0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var f boolForm
+			err := decodeFormValues(url.Values{"a": {tt.val}}, &f)
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", tt.val, err)
+			}
+			if f.A != tt.want {
+				t.Errorf("parseBool(%q) = %v, want %v", tt.val, f.A, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeFormValues_CheckboxUnchecked(t *testing.T) {
+	// Unchecked checkboxes send nothing — field stays zero value (false)
+	type checkForm struct {
+		Agree bool `form:"agree"`
+	}
+	var f checkForm
+	err := decodeFormValues(url.Values{}, &f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.Agree != false {
+		t.Errorf("Agree = %v, want false (unchecked)", f.Agree)
+	}
+}
+
+func TestDecodeFormValues_MultipleCheckboxes(t *testing.T) {
+	// Simulates: <input type="checkbox" name="roles" value="admin" />
+	//            <input type="checkbox" name="roles" value="editor" />
+	//            <input type="checkbox" name="roles" value="viewer" />
+	// User checks "admin" and "viewer" only.
+	type rolesForm struct {
+		Roles []string `form:"roles"`
+	}
+
+	t.Run("some checked", func(t *testing.T) {
+		vals := url.Values{"roles": {"admin", "viewer"}}
+		var f rolesForm
+		if err := decodeFormValues(vals, &f); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(f.Roles) != 2 {
+			t.Fatalf("Roles length = %d, want 2", len(f.Roles))
+		}
+		if f.Roles[0] != "admin" || f.Roles[1] != "viewer" {
+			t.Errorf("Roles = %v, want [admin viewer]", f.Roles)
+		}
+	})
+
+	t.Run("all checked", func(t *testing.T) {
+		vals := url.Values{"roles": {"admin", "editor", "viewer"}}
+		var f rolesForm
+		if err := decodeFormValues(vals, &f); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(f.Roles) != 3 {
+			t.Fatalf("Roles length = %d, want 3", len(f.Roles))
+		}
+	})
+
+	t.Run("none checked", func(t *testing.T) {
+		vals := url.Values{}
+		var f rolesForm
+		if err := decodeFormValues(vals, &f); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if f.Roles != nil {
+			t.Errorf("Roles = %v, want nil", f.Roles)
+		}
+	})
+}
+
 func TestDecodeFormValues_TypeError(t *testing.T) {
 	tests := []struct {
 		name string
