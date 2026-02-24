@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-24
+
+### Added
+
+- **request** — `BindForm[T]` and `BindFormWithConfig[T]` for `application/x-www-form-urlencoded` body binding with struct tags (`form:"name"`)
+- **request** — `BindMultipart[T]` and `BindMultipartWithConfig[T]` for `multipart/form-data` body binding
+- **request** — `FormFile(r, field)` returns a single uploaded file header; `FormFiles(r)` returns all uploaded files
+- **request** — `Bind[T]` now auto-detects content type: JSON, form, and multipart are dispatched automatically; unknown types return 415
+- **request** — `BindJSON[T]` and `BindJSONWithConfig[T]` for explicit JSON binding with content-type enforcement
+- **request** — `MaxMultipartMemory` field on `Config` (defaults to 32 MB) controls multipart memory threshold
+- **request** — `form` struct tag supported in field name resolution for validation errors (checked before `json` tag)
+- **server** — `WithTLS(certFile, keyFile)` option for HTTPS support
+- **server** — `Addr()` method returns the listener address after the server starts
+- **response** — `XML(w, statusCode, data)` writes XML responses with `<?xml?>` header
+- **response** — `IndentedJSON(w, statusCode, data)` writes pretty-printed JSON
+- **response** — `PureJSON(w, statusCode, data)` writes JSON without HTML escaping of `<`, `>`, `&`
+- **response** — `JSONP(w, r, statusCode, data)` writes JSONP responses (reads `?callback=` query param)
+- **response** — `Reader(w, statusCode, contentType, contentLength, reader)` streams from `io.Reader`
+
 ## [0.4.1] - 2026-02-23
 
 ### Fixed

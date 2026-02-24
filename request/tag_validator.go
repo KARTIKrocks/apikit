@@ -100,8 +100,15 @@ func validateStructFields(val reflect.Value, fields map[string]string, prefix st
 	}
 }
 
-// jsonFieldName returns the JSON tag name for a struct field, or the field name if no tag.
+// jsonFieldName returns the display name for a struct field in validation errors.
+// It checks the `form` tag first, then `json` tag, falling back to the Go field name.
 func jsonFieldName(field reflect.StructField) string {
+	if tag := field.Tag.Get("form"); tag != "" && tag != "-" {
+		name, _, _ := strings.Cut(tag, ",")
+		if name != "" {
+			return name
+		}
+	}
 	tag := field.Tag.Get("json")
 	if tag == "" || tag == "-" {
 		return field.Name

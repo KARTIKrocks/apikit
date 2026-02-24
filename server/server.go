@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -22,6 +23,9 @@ type Server struct {
 	onShutdown      []func(ctx context.Context) error
 	shutdownCh      chan struct{} // signals Shutdown was called programmatically
 	doneCh          chan struct{} // closed when Start() returns
+	tlsCertFile     string
+	tlsKeyFile      string
+	listenAddr      atomic.Value  // stores net.Addr after listening
 }
 
 // Option configures a Server.
@@ -92,6 +96,24 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+// WithTLS enables HTTPS with the given certificate and key files.
+func WithTLS(certFile, keyFile string) Option {
+	return func(s *Server) {
+		s.tlsCertFile = certFile
+		s.tlsKeyFile = keyFile
+	}
+}
+
+// Addr returns the listener address after the server has started.
+// Returns nil if the server has not started yet.
+func (s *Server) Addr() net.Addr {
+	v := s.listenAddr.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(net.Addr)
+}
+
 // OnStart registers a hook that runs before the server starts listening.
 // If any hook returns an error, Start aborts and returns the error.
 func (s *Server) OnStart(fn func() error) {
@@ -120,13 +142,25 @@ func (s *Server) Start() error {
 		return err
 	}
 
-	s.logger.Info("server starting", "addr", ln.Addr().String())
+	s.listenAddr.Store(ln.Addr())
+
+	if s.tlsCertFile != "" {
+		s.logger.Info("server starting (tls)", "addr", ln.Addr().String())
+	} else {
+		s.logger.Info("server starting", "addr", ln.Addr().String())
+	}
 
 	// Serve in background
 	errCh := make(chan error, 1)
 	go func() {
-		if err := s.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+		var serveErr error
+		if s.tlsCertFile != "" {
+			serveErr = s.httpServer.ServeTLS(ln, s.tlsCertFile, s.tlsKeyFile)
+		} else {
+			serveErr = s.httpServer.Serve(ln)
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			errCh <- serveErr
 		}
 		close(errCh)
 	}()

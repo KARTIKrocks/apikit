@@ -9,11 +9,11 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 
 - **`errors`** — Structured API errors with `errors.Is`/`errors.As` support, error codes, and sentinel errors
 - **`request`** — Generic body binding (`Bind[T]`), query/path/header parsing, pagination, sorting, filtering
-- **`response`** — Consistent JSON envelope, fluent builder, pagination helpers, SSE streaming
+- **`response`** — Consistent JSON envelope, fluent builder, pagination helpers, SSE streaming, XML, JSONP, and more
 - **`middleware`** — Request ID, logging, panic recovery, CORS, rate limiting, auth, security headers, timeout
 - **`httpclient`** — HTTP client with retries, exponential backoff, circuit breaker, and `HTTPClient` interface for mocking
 - **`router`** — Route grouping with `.Get()`/`.Post()` method helpers, prefix groups, and per-group middleware on top of `http.ServeMux`
-- **`server`** — Graceful shutdown wrapper with signal handling and lifecycle hooks
+- **`server`** — Graceful shutdown wrapper with signal handling, lifecycle hooks, and TLS support
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
 
 ## Install
@@ -143,8 +143,29 @@ type CreatePostReq struct {
     Body  string `json:"body"`
 }
 
-// Generic binding (returns typed value, not pointer)
-post, err := request.Bind[CreatePostReq](r) // Checks content-type, size limits, decodes JSON
+// Generic binding — auto-detects JSON, form, or multipart from Content-Type
+post, err := request.Bind[CreatePostReq](r)
+
+// Explicit JSON binding
+post, err := request.BindJSON[CreatePostReq](r)
+
+// --- HTML form binding ---
+type ContactForm struct {
+    Name    string `form:"name"    validate:"required"`
+    Email   string `form:"email"   validate:"required,email"`
+    Message string `form:"message" validate:"required,min=10"`
+}
+
+// Explicit form binding (application/x-www-form-urlencoded)
+form, err := request.BindForm[ContactForm](r)
+
+// Multipart form binding (multipart/form-data) with file uploads
+type UploadForm struct {
+    Title string `form:"title" validate:"required"`
+}
+meta, err := request.BindMultipart[UploadForm](r)
+fh, err := request.FormFile(r, "avatar")       // Single file
+allFiles := request.FormFiles(r)               // All uploaded files
 
 // --- Path parameters (Go 1.22+ stdlib routing) ---
 // Route: "GET /posts/{id}"
@@ -273,6 +294,16 @@ response.StreamJSON(w, func(send func(event string, data any) error) error {
     }
     return nil
 })
+
+// --- Other formats ---
+response.XML(w, 200, xmlData)                              // XML with <?xml?> header
+response.IndentedJSON(w, 200, data)                        // Pretty-printed JSON
+response.PureJSON(w, 200, data)                            // No HTML escaping of <, >, &
+response.JSONP(w, r, 200, data)                            // JSONP (reads ?callback=)
+response.Reader(w, 200, "image/png", size, imgReader)      // Stream from io.Reader
+response.HTML(w, 200, "<h1>Hello</h1>")                    // HTML
+response.Text(w, 200, "OK")                                // Plain text
+response.Raw(w, 200, "application/csv", csvBytes)          // Raw bytes
 
 // --- Handler wrapper ---
 // Converts func(w, r) error → http.HandlerFunc
@@ -464,6 +495,12 @@ srv := server.New(handler,
     server.WithIdleTimeout(120 * time.Second),
     server.WithShutdownTimeout(10 * time.Second),
     server.WithLogger(slog.Default()),
+)
+
+// HTTPS — just add WithTLS
+srv := server.New(handler,
+    server.WithAddr(":443"),
+    server.WithTLS("cert.pem", "key.pem"),
 )
 
 // Lifecycle hooks
