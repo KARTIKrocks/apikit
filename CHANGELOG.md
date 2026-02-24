@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-02-24
+
+### Added
+
+- **health** — New `health` package for health check endpoints with dependency checking, timeouts, and standard response formats
+- **health** — `NewChecker(opts...)` with functional options pattern and configurable per-check timeout (default 5s)
+- **health** — `AddCheck(name, fn)` registers critical checks — failure sets status to `"unhealthy"` (503)
+- **health** — `AddNonCriticalCheck(name, fn)` registers non-critical checks — failure sets status to `"degraded"` (200)
+- **health** — `Check(ctx)` runs all checks concurrently with per-check timeout and returns aggregated `Response`
+- **health** — `Handler()` returns an error-returning HTTP handler for readiness probes (compatible with `router` package)
+- **health** — `LiveHandler()` returns a liveness probe handler that always responds 200
+
 ## [0.5.0] - 2026-02-24
 
 ### Added
