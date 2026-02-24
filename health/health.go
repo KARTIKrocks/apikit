@@ -185,7 +185,7 @@ func (c *Checker) Handler() func(http.ResponseWriter, *http.Request) error {
 // LiveHandler returns an HTTP handler that always responds with 200.
 // Use this for Kubernetes liveness probes to confirm the process is running.
 func (c *Checker) LiveHandler() func(http.ResponseWriter, *http.Request) error {
-	return func(w http.ResponseWriter, r *http.Request) error {
+	return func(w http.ResponseWriter, _ *http.Request) error {
 		response.OK(w, "OK", nil)
 		return nil
 	}
