@@ -2,8 +2,10 @@ package response
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	stderrors "errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -125,4 +127,88 @@ func HTML(w http.ResponseWriter, statusCode int, html string) {
 // Text writes a plain text response.
 func Text(w http.ResponseWriter, statusCode int, text string) {
 	Raw(w, statusCode, "text/plain; charset=utf-8", []byte(text))
+}
+
+// XML writes an XML response.
+func XML(w http.ResponseWriter, statusCode int, data any) {
+	b, err := xml.Marshal(data)
+	if err != nil {
+		slog.Error("failed to encode XML response", "error", err)
+		InternalServerError(w, "Failed to encode XML")
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write([]byte(xml.Header))
+	_, _ = w.Write(b)
+}
+
+// IndentedJSON writes a pretty-printed JSON response (no envelope).
+// Useful for debug endpoints or human-readable API responses.
+func IndentedJSON(w http.ResponseWriter, statusCode int, data any) {
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		slog.Error("failed to encode JSON response", "error", err)
+		InternalServerError(w, "Failed to encode JSON")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(b)
+}
+
+// PureJSON writes a JSON response without HTML escaping of <, >, and &.
+// Standard json.Encoder escapes these characters for safe embedding in HTML;
+// PureJSON preserves them as-is for clients that consume raw JSON.
+func PureJSON(w http.ResponseWriter, statusCode int, data any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(statusCode)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(data); err != nil {
+		slog.Error("failed to encode JSON response", "error", err)
+	}
+}
+
+// JSONP writes a JSONP response for cross-domain callbacks.
+// The callback name is read from the "callback" query parameter.
+// If no callback is provided, it falls back to a regular JSON response.
+func JSONP(w http.ResponseWriter, r *http.Request, statusCode int, data any) {
+	callback := r.URL.Query().Get("callback")
+	if callback == "" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(data)
+		return
+	}
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		slog.Error("failed to encode JSONP response", "error", err)
+		InternalServerError(w, "Failed to encode JSON")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(statusCode)
+	_, _ = fmt.Fprintf(w, "%s(%s);", callback, b)
+}
+
+// Reader streams data from an io.Reader to the response.
+// Useful for proxying responses or sending large files without loading them into memory.
+func Reader(w http.ResponseWriter, statusCode int, contentType string, contentLength int64, reader io.Reader) {
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	if contentLength >= 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
+	}
+	w.WriteHeader(statusCode)
+	_, _ = io.Copy(w, reader)
 }

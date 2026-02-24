@@ -31,7 +31,8 @@ import (
 
 // Default limits
 const (
-	DefaultMaxBodySize = 1 << 20 // 1 MB
+	DefaultMaxBodySize           = 1 << 20  // 1 MB
+	DefaultMaxMultipartMemory    = 32 << 20 // 32 MB
 )
 
 // Config holds request binding configuration.
@@ -39,6 +40,10 @@ type Config struct {
 	// MaxBodySize is the maximum allowed request body size in bytes.
 	// Defaults to 1MB if zero.
 	MaxBodySize int64
+
+	// MaxMultipartMemory is the maximum memory (in bytes) used for parsing
+	// multipart form data before spilling to disk. Defaults to 32MB if zero.
+	MaxMultipartMemory int64
 
 	// DisallowUnknownFields rejects JSON bodies with unknown fields.
 	DisallowUnknownFields bool
@@ -48,6 +53,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxBodySize:           DefaultMaxBodySize,
+		MaxMultipartMemory:    DefaultMaxMultipartMemory,
 		DisallowUnknownFields: false,
 	}
 }
@@ -62,6 +68,9 @@ var (
 func SetConfig(cfg Config) {
 	if cfg.MaxBodySize <= 0 {
 		cfg.MaxBodySize = DefaultMaxBodySize
+	}
+	if cfg.MaxMultipartMemory <= 0 {
+		cfg.MaxMultipartMemory = DefaultMaxMultipartMemory
 	}
 	globalConfigMu.Lock()
 	globalConfig = cfg
@@ -84,14 +93,57 @@ func Bind[T any](r *http.Request) (T, error) {
 	return BindWithConfig[T](r, getConfig())
 }
 
-// BindWithConfig decodes the JSON request body into T using the provided config.
+// BindWithConfig decodes the request body into T using the provided config.
+// It auto-detects the content type and dispatches to the appropriate decoder:
+//   - application/json (or empty) → JSON
+//   - application/x-www-form-urlencoded → form
+//   - multipart/form-data → multipart form
+//   - anything else → 415 Unsupported Media Type
 func BindWithConfig[T any](r *http.Request, cfg Config) (T, error) {
 	var v T
 
-	// Check content type
+	ct := r.Header.Get("Content-Type")
+	if ct == "" {
+		return bindJSONWithConfig[T](r, cfg)
+	}
+
+	mediaType, _, err := mime.ParseMediaType(ct)
+	if err != nil {
+		return v, errors.BadRequest("Malformed Content-Type header")
+	}
+
+	switch mediaType {
+	case "application/json":
+		return bindJSONWithConfig[T](r, cfg)
+	case "application/x-www-form-urlencoded":
+		return bindFormWithConfig[T](r, cfg)
+	case "multipart/form-data":
+		return bindMultipartWithConfig[T](r, cfg)
+	default:
+		return v, errors.New(errors.CodeUnsupportedMedia,
+			fmt.Sprintf("Unsupported Content-Type: %s", mediaType)).
+			WithStatus(http.StatusUnsupportedMediaType)
+	}
+}
+
+// BindJSON decodes the JSON request body into T, enforcing application/json content type.
+func BindJSON[T any](r *http.Request) (T, error) {
+	return BindJSONWithConfig[T](r, getConfig())
+}
+
+// BindJSONWithConfig decodes the JSON request body into T using the provided config,
+// enforcing application/json content type.
+func BindJSONWithConfig[T any](r *http.Request, cfg Config) (T, error) {
+	var v T
 	if err := validateContentType(r, "application/json"); err != nil {
 		return v, err
 	}
+	return bindJSONWithConfig[T](r, cfg)
+}
+
+// bindJSONWithConfig is the internal JSON binding implementation (no content-type check).
+func bindJSONWithConfig[T any](r *http.Request, cfg Config) (T, error) {
+	var v T
 
 	// Check body exists
 	if r.Body == nil || r.Body == http.NoBody {
@@ -141,11 +193,6 @@ func BindWithConfig[T any](r *http.Request, cfg Config) (T, error) {
 	}
 
 	return v, nil
-}
-
-// BindJSON is an alias for Bind that makes the JSON intent explicit.
-func BindJSON[T any](r *http.Request) (T, error) {
-	return Bind[T](r)
 }
 
 // DecodeJSON decodes the request body into the provided pointer.
