@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-25
+
+### Added
+
+- **sqlbuilder** — New `sqlbuilder` package: fluent, type-safe SQL query builder with multi-dialect support (PostgreSQL, MySQL, SQLite)
+- **sqlbuilder** — `Select`, `Insert`, `Update`, `Delete` builders with chainable API and `Build() (string, []any)` terminal method
+- **sqlbuilder** — Dialect support: `Postgres` (default, `$1, $2, ...`), `MySQL` and `SQLite` (`?` placeholders) via `SetDialect(d)` or `SelectWith(d, ...)` / `InsertWith(d, ...)` / `UpdateWith(d, ...)` / `DeleteWith(d, ...)` constructors
+- **sqlbuilder** — SELECT: `Distinct`, `Column`, `Columns`, `ColumnExpr`, `From`, `FromAlias`, `FromSubquery`
+- **sqlbuilder** — JOIN support: `Join`, `LeftJoin`, `RightJoin`, `FullJoin`, `CrossJoin` with parameterized ON clauses
+- **sqlbuilder** — WHERE conditions: `Where`, `WhereEq`, `WhereNeq`, `WhereGt`, `WhereGte`, `WhereLt`, `WhereLte`, `WhereLike`, `WhereILike`, `WhereIn`, `WhereNotIn`, `WhereBetween`, `WhereNull`, `WhereNotNull`, `WhereExists`, `WhereNotExists`, `WhereOr`, `WhereInSubquery`, `WhereNotInSubquery` — available on Select, Update, and Delete builders
+- **sqlbuilder** — Automatic placeholder rebasing: each `Where` call uses `$1`-relative numbering, globally rebased at `Build()` time
+- **sqlbuilder** — `GroupBy`, `Having`, `OrderBy`, `OrderByAsc`, `OrderByDesc`, `OrderByExpr`, `Limit`, `Offset`
+- **sqlbuilder** — Row-level locking: `ForUpdate`, `ForShare`, `SkipLocked`, `NoWait`
+- **sqlbuilder** — Set operations: `Union`, `UnionAll`, `Intersect`, `Except`
+- **sqlbuilder** — CTEs: `With`, `WithRecursive`, `WithSelect`, `WithRecursiveSelect` on all builders
+- **sqlbuilder** — INSERT: `Columns`, `Values`, `ValueMap`, `BatchValues`, `FromSelect`
+- **sqlbuilder** — Upsert: `OnConflictDoNothing`, `OnConflictUpdate`, `OnConflictUpdateExpr`
+- **sqlbuilder** — UPDATE: `Set`, `SetExpr`, `SetMap`, `Increment`, `Decrement`, multi-table `From`
+- **sqlbuilder** — DELETE: `Using` for multi-table deletes
+- **sqlbuilder** — `Returning` clause on Insert, Update, and Delete builders
+- **sqlbuilder** — Expression helpers: `Raw`, `RawExpr`, `Count`, `CountDistinct`, `Sum`, `Avg`, `Min`, `Max`, `Expr.As(alias)`
+- **sqlbuilder** — Request integration: `ApplyPagination`, `ApplySort`, `ApplyFilters` bridge `request` package types to query conditions
+- **sqlbuilder** — `When(cond, fn)` conditional builder and `Clone()` deep copy on all builders
+- **sqlbuilder** — All builders expose `Build()`, `MustBuild()`, `Query()`, and `String()` terminal methods
+
 ## [0.6.0] - 2026-02-24
 
 ### Added
