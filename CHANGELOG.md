@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-25
+
+### Added
+
+- **config** — New `config` package: load application configuration from environment variables, `.env` files, and JSON config files into typed Go structs
+- **config** — `Load(dst, ...Option)` populates a struct from sources in priority order (env vars > .env file > JSON file > default tags) and validates with `request.ValidateStruct`
+- **config** — `MustLoad(dst, ...Option)` calls `Load` and panics on error, for use in `main`/`init`
+- **config** — Struct tags: `env:"VAR_NAME"` maps fields to env vars, `default:"value"` sets fallbacks, `validate:"..."` reuses existing request validators
+- **config** — Options: `WithPrefix(p)` for prefixed env vars (e.g., `APP_PORT`), `WithEnvFile(path)` for `.env` files, `WithJSONFile(path)` for JSON base config, `WithRequired()` to error on missing files
+- **config** — Supported types: `string`, `bool`, `int/int8/16/32/64`, `uint` variants, `float32/64`, `time.Duration`, `[]string`, `[]int`
+- **config** — Nested struct support: automatically flattened to env var names (e.g., `DB.Host` → `DB_HOST`)
+- **config** — `.env` file parsing: comments, blank lines, quoted values (single/double), inline comments
+- **config** — JSON config flattening: nested objects become underscore-separated uppercase keys
+- **config** — Structured error messages using `*errors.Error` for parse errors, validation failures, and missing files
+
 ## [0.7.0] - 2026-02-25
 
 ### Added

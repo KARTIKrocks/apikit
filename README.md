@@ -15,6 +15,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`router`** — Route grouping with `.Get()`/`.Post()` method helpers, prefix groups, and per-group middleware on top of `http.ServeMux`
 - **`server`** — Graceful shutdown wrapper with signal handling, lifecycle hooks, and TLS support
 - **`health`** — Health check endpoint builder with dependency checks, timeouts, and liveness/readiness probes
+- **`config`** — Load configuration from env vars, `.env` files, and JSON files into typed structs with validation
 - **`sqlbuilder`** — Fluent SQL query builder for PostgreSQL, MySQL, and SQLite with JOINs, CTEs, UNION, upsert, and `request` package integration
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
 
@@ -565,6 +566,50 @@ fmt.Println(resp.Status) // "healthy", "degraded", or "unhealthy"
   },
   "timestamp": 1700000000
 }
+```
+
+### config
+
+Load application configuration from environment variables, `.env` files, and JSON config files into typed Go structs.
+
+```go
+import "github.com/KARTIKrocks/apikit/config"
+
+type AppConfig struct {
+    Host     string        `env:"HOST"      default:"localhost"  validate:"required"`
+    Port     int           `env:"PORT"      default:"8080"       validate:"required,min=1,max=65535"`
+    Debug    bool          `env:"DEBUG"     default:"false"`
+    DBUrl    string        `env:"DB_URL"    validate:"required,url"`
+    LogLevel string        `env:"LOG_LEVEL" default:"info"       validate:"oneof=debug info warn error"`
+    Timeout  time.Duration `env:"TIMEOUT"   default:"30s"`
+    Tags     []string      `env:"TAGS"`
+}
+
+var cfg AppConfig
+config.MustLoad(&cfg,
+    config.WithPrefix("APP"),           // reads APP_HOST, APP_PORT, etc.
+    config.WithEnvFile(".env"),          // load .env file (won't override real env vars)
+    config.WithJSONFile("config.json"), // JSON as base layer
+)
+
+// Sources are applied in priority order:
+// 1. Environment variables (highest)
+// 2. .env file
+// 3. JSON file
+// 4. default:"..." tags (lowest)
+```
+
+Nested structs are flattened automatically:
+
+```go
+type Config struct {
+    DB struct {
+        Host string `env:"HOST" default:"localhost"`
+        Port int    `env:"PORT" default:"5432"`
+    }
+}
+
+// Reads DB_HOST, DB_PORT (or APP_DB_HOST, APP_DB_PORT with WithPrefix("APP"))
 ```
 
 ### sqlbuilder
