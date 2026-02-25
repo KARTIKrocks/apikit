@@ -7,6 +7,7 @@ import (
 
 // DeleteBuilder builds DELETE queries.
 type DeleteBuilder struct {
+	dialect    Dialect
 	table      string
 	using      []string
 	conditions []condition
@@ -19,6 +20,12 @@ type DeleteBuilder struct {
 //	sqlbuilder.Delete("users").Where("id = $1", 1)
 func Delete(table string) *DeleteBuilder {
 	return &DeleteBuilder{table: table}
+}
+
+// SetDialect sets the SQL dialect for placeholder conversion at Build time.
+func (b *DeleteBuilder) SetDialect(d Dialect) *DeleteBuilder {
+	b.dialect = d
+	return b
 }
 
 // Using adds tables for multi-table DELETE (PostgreSQL USING clause).
@@ -113,7 +120,7 @@ func (b *DeleteBuilder) WhereILike(col string, val any) *DeleteBuilder {
 
 // WhereExists adds a "EXISTS (subquery)" condition.
 func (b *DeleteBuilder) WhereExists(sub *SelectBuilder) *DeleteBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  "EXISTS (" + sql + ")",
 		args: args,
@@ -123,7 +130,7 @@ func (b *DeleteBuilder) WhereExists(sub *SelectBuilder) *DeleteBuilder {
 
 // WhereNotExists adds a "NOT EXISTS (subquery)" condition.
 func (b *DeleteBuilder) WhereNotExists(sub *SelectBuilder) *DeleteBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  "NOT EXISTS (" + sql + ")",
 		args: args,
@@ -139,7 +146,7 @@ func (b *DeleteBuilder) WhereOr(conditions ...condition) *DeleteBuilder {
 
 // WhereInSubquery adds a "col IN (subquery)" condition.
 func (b *DeleteBuilder) WhereInSubquery(col string, sub *SelectBuilder) *DeleteBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  col + " IN (" + sql + ")",
 		args: args,
@@ -149,7 +156,7 @@ func (b *DeleteBuilder) WhereInSubquery(col string, sub *SelectBuilder) *DeleteB
 
 // WhereNotInSubquery adds a "col NOT IN (subquery)" condition.
 func (b *DeleteBuilder) WhereNotInSubquery(col string, sub *SelectBuilder) *DeleteBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  col + " NOT IN (" + sql + ")",
 		args: args,
@@ -187,6 +194,14 @@ func (b *DeleteBuilder) With(name string, q Query) *DeleteBuilder {
 	return b
 }
 
+// WithSelect adds a CTE from a SelectBuilder. This is dialect-safe: the
+// subquery is always built with Postgres placeholders internally.
+func (b *DeleteBuilder) WithSelect(name string, sub *SelectBuilder) *DeleteBuilder {
+	sql, args := buildSelectPostgres(sub)
+	b.ctes = append(b.ctes, cte{name: name, query: Query{SQL: sql, Args: args}})
+	return b
+}
+
 // Build assembles the SQL string and arguments.
 func (b *DeleteBuilder) Build() (string, []any) {
 	var sb strings.Builder
@@ -213,7 +228,7 @@ func (b *DeleteBuilder) Build() (string, []any) {
 
 	writeReturning(&sb, b.returning)
 
-	return sb.String(), args
+	return convertPlaceholders(sb.String(), b.dialect), args
 }
 
 // MustBuild calls Build and panics if the builder is in an invalid state.

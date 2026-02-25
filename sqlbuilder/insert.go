@@ -8,6 +8,7 @@ import (
 
 // InsertBuilder builds INSERT queries.
 type InsertBuilder struct {
+	dialect    Dialect
 	table      string
 	columns    []string
 	rows       [][]any
@@ -22,6 +23,12 @@ type InsertBuilder struct {
 //	sqlbuilder.Insert("users").Columns("name", "email").Values("Alice", "alice@example.com")
 func Insert(table string) *InsertBuilder {
 	return &InsertBuilder{table: table}
+}
+
+// SetDialect sets the SQL dialect for placeholder conversion at Build time.
+func (b *InsertBuilder) SetDialect(d Dialect) *InsertBuilder {
+	b.dialect = d
+	return b
 }
 
 // Columns sets the column names for the INSERT.
@@ -145,6 +152,14 @@ func (b *InsertBuilder) With(name string, q Query) *InsertBuilder {
 	return b
 }
 
+// WithSelect adds a CTE from a SelectBuilder. This is dialect-safe: the
+// subquery is always built with Postgres placeholders internally.
+func (b *InsertBuilder) WithSelect(name string, sub *SelectBuilder) *InsertBuilder {
+	sql, args := buildSelectPostgres(sub)
+	b.ctes = append(b.ctes, cte{name: name, query: Query{SQL: sql, Args: args}})
+	return b
+}
+
 // When conditionally applies a function to the builder.
 func (b *InsertBuilder) When(cond bool, fn func(*InsertBuilder)) *InsertBuilder {
 	if cond {
@@ -207,14 +222,15 @@ func (b *InsertBuilder) Build() (string, []any) {
 		sb.WriteByte(')')
 	}
 
-	if b.fromSelect != nil {
+	switch {
+	case b.fromSelect != nil:
 		sb.WriteByte(' ')
-		selSQL, selArgs := b.fromSelect.Build()
+		selSQL, selArgs := buildSelectPostgres(b.fromSelect)
 		rebased := rebasePlaceholders(selSQL, ac.offset())
 		sb.WriteString(rebased)
 		args = append(args, selArgs...)
 		ac.n += len(selArgs)
-	} else if b.onConflict != "" && strings.Contains(b.onConflict, "DO UPDATE") {
+	case b.onConflict != "" && strings.Contains(b.onConflict, "DO UPDATE"):
 		// For upsert: last row in b.rows is the conflict set args
 		dataRows := b.rows[:len(b.rows)-1]
 		conflictArgs := b.rows[len(b.rows)-1]
@@ -228,7 +244,7 @@ func (b *InsertBuilder) Build() (string, []any) {
 		sb.WriteString(rebased)
 		args = append(args, conflictArgs...)
 		ac.n += len(conflictArgs)
-	} else {
+	default:
 		sb.WriteString(" VALUES ")
 		writeValuesRows(&sb, b.rows, ac, &args)
 
@@ -240,7 +256,7 @@ func (b *InsertBuilder) Build() (string, []any) {
 
 	writeReturning(&sb, b.returning)
 
-	return sb.String(), args
+	return convertPlaceholders(sb.String(), b.dialect), args
 }
 
 // MustBuild calls Build and panics if the builder is in an invalid state.

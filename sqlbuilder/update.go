@@ -7,6 +7,7 @@ import (
 
 // UpdateBuilder builds UPDATE queries.
 type UpdateBuilder struct {
+	dialect    Dialect
 	table      string
 	setClauses []setClause
 	fromTables []string
@@ -26,6 +27,12 @@ type setClause struct {
 //	sqlbuilder.Update("users").Set("name", "Bob").Where("id = $1", 1)
 func Update(table string) *UpdateBuilder {
 	return &UpdateBuilder{table: table}
+}
+
+// SetDialect sets the SQL dialect for placeholder conversion at Build time.
+func (b *UpdateBuilder) SetDialect(d Dialect) *UpdateBuilder {
+	b.dialect = d
+	return b
 }
 
 // Set adds a column = value assignment.
@@ -144,7 +151,7 @@ func (b *UpdateBuilder) WhereILike(col string, val any) *UpdateBuilder {
 
 // WhereExists adds a "EXISTS (subquery)" condition.
 func (b *UpdateBuilder) WhereExists(sub *SelectBuilder) *UpdateBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  "EXISTS (" + sql + ")",
 		args: args,
@@ -154,7 +161,7 @@ func (b *UpdateBuilder) WhereExists(sub *SelectBuilder) *UpdateBuilder {
 
 // WhereNotExists adds a "NOT EXISTS (subquery)" condition.
 func (b *UpdateBuilder) WhereNotExists(sub *SelectBuilder) *UpdateBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  "NOT EXISTS (" + sql + ")",
 		args: args,
@@ -170,7 +177,7 @@ func (b *UpdateBuilder) WhereOr(conditions ...condition) *UpdateBuilder {
 
 // WhereInSubquery adds a "col IN (subquery)" condition.
 func (b *UpdateBuilder) WhereInSubquery(col string, sub *SelectBuilder) *UpdateBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  col + " IN (" + sql + ")",
 		args: args,
@@ -180,7 +187,7 @@ func (b *UpdateBuilder) WhereInSubquery(col string, sub *SelectBuilder) *UpdateB
 
 // WhereNotInSubquery adds a "col NOT IN (subquery)" condition.
 func (b *UpdateBuilder) WhereNotInSubquery(col string, sub *SelectBuilder) *UpdateBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	b.conditions = append(b.conditions, condition{
 		sql:  col + " NOT IN (" + sql + ")",
 		args: args,
@@ -233,6 +240,14 @@ func (b *UpdateBuilder) With(name string, q Query) *UpdateBuilder {
 	return b
 }
 
+// WithSelect adds a CTE from a SelectBuilder. This is dialect-safe: the
+// subquery is always built with Postgres placeholders internally.
+func (b *UpdateBuilder) WithSelect(name string, sub *SelectBuilder) *UpdateBuilder {
+	sql, args := buildSelectPostgres(sub)
+	b.ctes = append(b.ctes, cte{name: name, query: Query{SQL: sql, Args: args}})
+	return b
+}
+
 // Build assembles the SQL string and arguments.
 func (b *UpdateBuilder) Build() (string, []any) {
 	var sb strings.Builder
@@ -277,7 +292,7 @@ func (b *UpdateBuilder) Build() (string, []any) {
 
 	writeReturning(&sb, b.returning)
 
-	return sb.String(), args
+	return convertPlaceholders(sb.String(), b.dialect), args
 }
 
 // MustBuild calls Build and panics if the builder is in an invalid state.

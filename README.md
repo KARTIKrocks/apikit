@@ -15,7 +15,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`router`** — Route grouping with `.Get()`/`.Post()` method helpers, prefix groups, and per-group middleware on top of `http.ServeMux`
 - **`server`** — Graceful shutdown wrapper with signal handling, lifecycle hooks, and TLS support
 - **`health`** — Health check endpoint builder with dependency checks, timeouts, and liveness/readiness probes
-- **`sqlbuilder`** — Fluent SQL query builder for PostgreSQL with `$1, $2` placeholders, JOINs, CTEs, UNION, upsert, and `request` package integration
+- **`sqlbuilder`** — Fluent SQL query builder for PostgreSQL, MySQL, and SQLite with JOINs, CTEs, UNION, upsert, and `request` package integration
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
 
 ## Install
@@ -569,7 +569,7 @@ fmt.Println(resp.Status) // "healthy", "degraded", or "unhealthy"
 
 ### sqlbuilder
 
-Fluent SQL query builder for PostgreSQL. Produces `(string, []any)` pairs — no `database/sql` dependency.
+Fluent SQL query builder for PostgreSQL, MySQL, and SQLite. Produces `(string, []any)` pairs — no `database/sql` dependency.
 
 ```go
 import "github.com/KARTIKrocks/apikit/sqlbuilder"
@@ -691,6 +691,27 @@ sql, args := sqlbuilder.Delete("users").
     WhereEq("id", 1).
     Returning("id", "name").
     Build()
+
+// --- MySQL / SQLite dialect ---
+sql, args = sqlbuilder.Select("id", "name").
+    From("users").
+    WhereEq("active", true).
+    WhereGt("age", 18).
+    SetDialect(sqlbuilder.MySQL). // or sqlbuilder.SQLite
+    Build()
+// sql:  "SELECT id, name FROM users WHERE active = ? AND age > ?"
+// args: [true, 18]
+
+// Dialect-first constructors
+sql, args = sqlbuilder.SelectWith(sqlbuilder.MySQL, "id").
+    From("users").WhereEq("id", 1).Build()
+// sql: "SELECT id FROM users WHERE id = ?"
+
+sql, args = sqlbuilder.InsertWith(sqlbuilder.MySQL, "users").
+    Columns("name", "email").
+    Values("Alice", "alice@example.com").
+    Build()
+// sql: "INSERT INTO users (name, email) VALUES (?, ?)"
 
 // --- Integration with request package ---
 pg, _ := request.Paginate(r)

@@ -20,6 +20,8 @@ type condition struct {
 //	        sqlbuilder.Or("role = $1", "admin"),
 //	    ).Build()
 //	// WHERE (status = $1 OR role = $2)
+//
+//nolint:revive // condition is intentionally unexported; Or() is the only way to create one.
 func Or(sql string, args ...any) condition {
 	return condition{sql: sql, args: args}
 }

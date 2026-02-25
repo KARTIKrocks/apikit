@@ -1,7 +1,12 @@
-// Package sqlbuilder provides a fluent, type-safe SQL query builder for PostgreSQL.
+// Package sqlbuilder provides a fluent, type-safe SQL query builder for PostgreSQL,
+// MySQL, and SQLite.
 //
-// It uses $1, $2, ... numbered placeholders and integrates with the request
-// package's Pagination, SortField, and Filter types for API-driven queries.
+// By default it uses PostgreSQL $1, $2, ... numbered placeholders. Set a dialect
+// to target MySQL or SQLite (? positional placeholders) via .SetDialect() or the
+// SelectWith/InsertWith/UpdateWith/DeleteWith constructors.
+//
+// It integrates with the request package's Pagination, SortField, and Filter types
+// for API-driven queries.
 //
 // # Quick Start
 //

@@ -10,6 +10,7 @@ import (
 
 // SelectBuilder builds SELECT queries.
 type SelectBuilder struct {
+	dialect      Dialect
 	distinct     bool
 	columns      []string
 	columnExpr   []Expr
@@ -51,6 +52,12 @@ func Select(columns ...string) *SelectBuilder {
 //	sqlbuilder.SelectExpr(sqlbuilder.Raw("COUNT(*)"))
 func SelectExpr(exprs ...Expr) *SelectBuilder {
 	return &SelectBuilder{columnExpr: exprs}
+}
+
+// SetDialect sets the SQL dialect for placeholder conversion at Build time.
+func (s *SelectBuilder) SetDialect(d Dialect) *SelectBuilder {
+	s.dialect = d
+	return s
 }
 
 // Distinct adds DISTINCT to the SELECT.
@@ -166,7 +173,7 @@ func (s *SelectBuilder) WhereNotNull(col string) *SelectBuilder {
 
 // WhereExists adds a "EXISTS (subquery)" condition.
 func (s *SelectBuilder) WhereExists(sub *SelectBuilder) *SelectBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	s.conditions = append(s.conditions, condition{
 		sql:  "EXISTS (" + sql + ")",
 		args: args,
@@ -176,7 +183,7 @@ func (s *SelectBuilder) WhereExists(sub *SelectBuilder) *SelectBuilder {
 
 // WhereNotExists adds a "NOT EXISTS (subquery)" condition.
 func (s *SelectBuilder) WhereNotExists(sub *SelectBuilder) *SelectBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	s.conditions = append(s.conditions, condition{
 		sql:  "NOT EXISTS (" + sql + ")",
 		args: args,
@@ -186,7 +193,7 @@ func (s *SelectBuilder) WhereNotExists(sub *SelectBuilder) *SelectBuilder {
 
 // WhereInSubquery adds a "col IN (subquery)" condition.
 func (s *SelectBuilder) WhereInSubquery(col string, sub *SelectBuilder) *SelectBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	s.conditions = append(s.conditions, condition{
 		sql:  col + " IN (" + sql + ")",
 		args: args,
@@ -196,7 +203,7 @@ func (s *SelectBuilder) WhereInSubquery(col string, sub *SelectBuilder) *SelectB
 
 // WhereNotInSubquery adds a "col NOT IN (subquery)" condition.
 func (s *SelectBuilder) WhereNotInSubquery(col string, sub *SelectBuilder) *SelectBuilder {
-	sql, args := sub.Build()
+	sql, args := buildSelectPostgres(sub)
 	s.conditions = append(s.conditions, condition{
 		sql:  col + " NOT IN (" + sql + ")",
 		args: args,
@@ -344,28 +351,28 @@ func (s *SelectBuilder) NoWait() *SelectBuilder {
 
 // Union adds a UNION with another SELECT.
 func (s *SelectBuilder) Union(other *SelectBuilder) *SelectBuilder {
-	sql, args := other.Build()
+	sql, args := buildSelectPostgres(other)
 	s.setOps = append(s.setOps, setOp{kind: setOpUnion, query: Query{SQL: sql, Args: args}})
 	return s
 }
 
 // UnionAll adds a UNION ALL with another SELECT.
 func (s *SelectBuilder) UnionAll(other *SelectBuilder) *SelectBuilder {
-	sql, args := other.Build()
+	sql, args := buildSelectPostgres(other)
 	s.setOps = append(s.setOps, setOp{kind: setOpUnionAll, query: Query{SQL: sql, Args: args}})
 	return s
 }
 
 // Intersect adds an INTERSECT with another SELECT.
 func (s *SelectBuilder) Intersect(other *SelectBuilder) *SelectBuilder {
-	sql, args := other.Build()
+	sql, args := buildSelectPostgres(other)
 	s.setOps = append(s.setOps, setOp{kind: setOpIntersect, query: Query{SQL: sql, Args: args}})
 	return s
 }
 
 // Except adds an EXCEPT with another SELECT.
 func (s *SelectBuilder) Except(other *SelectBuilder) *SelectBuilder {
-	sql, args := other.Build()
+	sql, args := buildSelectPostgres(other)
 	s.setOps = append(s.setOps, setOp{kind: setOpExcept, query: Query{SQL: sql, Args: args}})
 	return s
 }
@@ -379,6 +386,22 @@ func (s *SelectBuilder) With(name string, q Query) *SelectBuilder {
 // WithRecursive adds a recursive CTE.
 func (s *SelectBuilder) WithRecursive(name string, q Query) *SelectBuilder {
 	s.ctes = append(s.ctes, cte{name: name, query: q, recursive: true})
+	return s
+}
+
+// WithSelect adds a CTE from a SelectBuilder. This is dialect-safe: the
+// subquery is always built with Postgres placeholders internally, so
+// placeholder rebasing works correctly regardless of the sub's dialect.
+func (s *SelectBuilder) WithSelect(name string, sub *SelectBuilder) *SelectBuilder {
+	sql, args := buildSelectPostgres(sub)
+	s.ctes = append(s.ctes, cte{name: name, query: Query{SQL: sql, Args: args}})
+	return s
+}
+
+// WithRecursiveSelect adds a recursive CTE from a SelectBuilder.
+func (s *SelectBuilder) WithRecursiveSelect(name string, sub *SelectBuilder) *SelectBuilder {
+	sql, args := buildSelectPostgres(sub)
+	s.ctes = append(s.ctes, cte{name: name, query: Query{SQL: sql, Args: args}, recursive: true})
 	return s
 }
 
@@ -516,7 +539,7 @@ func (s *SelectBuilder) Build() (string, []any) {
 
 	// FROM
 	if s.fromSubquery != nil {
-		subSQL, subArgs := s.fromSubquery.Build()
+		subSQL, subArgs := buildSelectPostgres(s.fromSubquery)
 		sb.WriteString(" FROM (")
 		rebased := rebasePlaceholders(subSQL, ac.offset())
 		sb.WriteString(rebased)
@@ -609,7 +632,7 @@ func (s *SelectBuilder) Build() (string, []any) {
 		}
 	}
 
-	return sb.String(), args
+	return convertPlaceholders(sb.String(), s.dialect), args
 }
 
 // MustBuild calls Build and panics if the builder is in an invalid state.
