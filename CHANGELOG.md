@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-XX-XX
+
+### Added
+
+- **sqlbuilder** — New `sqlbuilder` package: fluent, type-safe SQL query builder for PostgreSQL with `$1, $2, ...` numbered placeholders
+- **sqlbuilder** — `Select`, `SelectExpr` builders with `Distinct`, `Column`, `Columns`, `ColumnExpr`, `From`, `FromAlias`, `FromSubquery`
+- **sqlbuilder** — JOIN support: `Join`, `LeftJoin`, `RightJoin`, `FullJoin`, `CrossJoin` with parameterized ON clauses
+- **sqlbuilder** — WHERE conditions: `Where`, `WhereIn`, `WhereNotIn`, `WhereBetween`, `WhereNull`, `WhereNotNull`, `WhereExists`, `WhereOr`
+- **sqlbuilder** — `GroupBy`, `Having`, `OrderBy`, `OrderByExpr`, `Limit`, `Offset`
+- **sqlbuilder** — Row-level locking: `ForUpdate`, `ForShare`, `SkipLocked`, `NoWait`
+- **sqlbuilder** — Set operations: `Union`, `UnionAll`, `Intersect`, `Except`
+- **sqlbuilder** — CTEs: `With(name, query)` and `WithRecursive(name, query)` on all builders
+- **sqlbuilder** — `Insert` builder with `Columns`, `Values`, `ValueMap`, `BatchValues`, `FromSelect`
+- **sqlbuilder** — Upsert support: `OnConflictDoNothing`, `OnConflictUpdate`, `OnConflictUpdateExpr`
+- **sqlbuilder** — `Update` builder with `Set`, `SetExpr`, `SetMap`, multi-table `From`
+- **sqlbuilder** — `Delete` builder with `Using` for PostgreSQL multi-table deletes
+- **sqlbuilder** — `Returning` clause on INSERT, UPDATE, and DELETE builders
+- **sqlbuilder** — Automatic placeholder rebasing: each `Where` call uses `$1`-relative numbering, globally rebased at `Build()` time
+- **sqlbuilder** — `Raw(sql)` and `RawExpr(sql, args...)` for raw SQL expressions in SELECT columns, SET clauses, and ORDER BY
+- **sqlbuilder** — `ApplyPagination(request.Pagination)` sets LIMIT and OFFSET from parsed pagination
+- **sqlbuilder** — `ApplySort([]request.SortField, allowedColumns)` converts API sort fields to ORDER BY with column allowlist
+- **sqlbuilder** — `ApplyFilters([]request.Filter, allowedColumns)` converts API filters to WHERE conditions (eq, neq, gt, gte, lt, lte, in)
+- **sqlbuilder** — All builders expose `Build() (string, []any)`, `MustBuild()`, `Query()`, and `String()` terminal methods
+- **sqlbuilder** — Convenience `Where` helpers on Select, Update, and Delete builders: `WhereEq`, `WhereNeq`, `WhereGt`, `WhereGte`, `WhereLt`, `WhereLte`, `WhereLike`, `WhereILike`
+- **sqlbuilder** — `OrderByAsc(cols...)` and `OrderByDesc(cols...)` helpers on SelectBuilder
+- **sqlbuilder** — `WhereNotIn` and `WhereBetween` helpers on Update and Delete builders (were previously Select-only)
+- **sqlbuilder** — Aggregate expression helpers: `Count`, `CountDistinct`, `Sum`, `Avg`, `Min`, `Max` return `Expr` for use in `SelectExpr`
+- **sqlbuilder** — `Expr.As(alias)` method for aliasing expressions (e.g., `Count("*").As("total")`)
+- **sqlbuilder** — `WhereNotExists` on Select, Update, and Delete builders
+- **sqlbuilder** — `WhereExists` and `WhereOr` on Update and Delete builders (were previously Select-only)
+- **sqlbuilder** — `WhereInSubquery` and `WhereNotInSubquery` on Select, Update, and Delete builders for subquery-based IN conditions
+- **sqlbuilder** — `When(cond, fn)` conditional builder on all four builders (Select, Insert, Update, Delete)
+- **sqlbuilder** — `Clone()` deep copy on all four builders for safe query composition from a shared base
+- **sqlbuilder** — `Increment(col, n)` and `Decrement(col, n)` on UpdateBuilder for `SET col = col + $1` / `SET col = col - $1`
+
 ## [0.6.0] - 2026-02-24
 
 ### Added

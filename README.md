@@ -15,6 +15,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`router`** — Route grouping with `.Get()`/`.Post()` method helpers, prefix groups, and per-group middleware on top of `http.ServeMux`
 - **`server`** — Graceful shutdown wrapper with signal handling, lifecycle hooks, and TLS support
 - **`health`** — Health check endpoint builder with dependency checks, timeouts, and liveness/readiness probes
+- **`sqlbuilder`** — Fluent SQL query builder for PostgreSQL with `$1, $2` placeholders, JOINs, CTEs, UNION, upsert, and `request` package integration
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
 
 ## Install
@@ -558,12 +559,154 @@ fmt.Println(resp.Status) // "healthy", "degraded", or "unhealthy"
     "status": "healthy",
     "checks": {
       "postgres": { "status": "healthy", "duration_ms": 2 },
-      "redis":    { "status": "healthy", "duration_ms": 1 }
+      "redis": { "status": "healthy", "duration_ms": 1 }
     },
     "timestamp": 1700000000
   },
   "timestamp": 1700000000
 }
+```
+
+### sqlbuilder
+
+Fluent SQL query builder for PostgreSQL. Produces `(string, []any)` pairs — no `database/sql` dependency.
+
+```go
+import "github.com/KARTIKrocks/apikit/sqlbuilder"
+
+// --- SELECT ---
+sql, args := sqlbuilder.Select("id", "name", "email").
+    From("users").
+    Where("active = $1", true).
+    OrderBy("name ASC").
+    Limit(20).
+    Build()
+// sql:  "SELECT id, name, email FROM users WHERE active = $1 ORDER BY name ASC LIMIT 20"
+// args: [true]
+
+// Convenience Where helpers — no placeholder syntax needed
+sql, args := sqlbuilder.Select("id").From("users").
+    WhereEq("status", "active").
+    WhereGt("age", 18).
+    WhereLike("name", "A%").
+    Build()
+// sql:  "SELECT id FROM users WHERE status = $1 AND age > $2 AND name LIKE $3"
+// args: ["active", 18, "A%"]
+// Also: WhereNeq, WhereGte, WhereLt, WhereLte, WhereILike
+
+// OrderBy helpers
+sql, _ = sqlbuilder.Select("id").From("users").
+    OrderByAsc("name").
+    OrderByDesc("created_at").
+    Build()
+// sql: "SELECT id FROM users ORDER BY name ASC, created_at DESC"
+
+// Placeholder rebasing — each Where uses $1-relative numbering
+sql, args = sqlbuilder.Select("id").From("users").
+    Where("status = $1", "active").
+    Where("age > $1", 18).
+    Build()
+// sql:  "SELECT id FROM users WHERE status = $1 AND age > $2"
+// args: ["active", 18]
+
+// JOINs, GROUP BY, HAVING
+sql, args := sqlbuilder.Select("u.id", "COUNT(o.id) as orders").
+    From("users u").
+    LeftJoin("orders o", "o.user_id = u.id").
+    Where("u.active = $1", true).
+    GroupBy("u.id").
+    Having("COUNT(o.id) > $1", 5).
+    Build()
+
+// Aggregate helpers
+sql, _ = sqlbuilder.SelectExpr(
+    sqlbuilder.Count("*").As("total"),
+    sqlbuilder.Avg("price").As("avg_price"),
+).From("products").Build()
+// sql: "SELECT COUNT(*) AS total, AVG(price) AS avg_price FROM products"
+
+// Subquery conditions
+sub := sqlbuilder.Select("user_id").From("orders").Where("total > $1", 100)
+sql, args = sqlbuilder.Select("id", "name").From("users").
+    WhereInSubquery("id", sub).
+    Build()
+// sql:  "SELECT id, name FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > $1)"
+// args: [100]
+
+// Subqueries, CTEs, UNION, FOR UPDATE
+sql, _ := sqlbuilder.Select("id").From("users").ForUpdate().SkipLocked().Build()
+q1 := sqlbuilder.Select("id").From("users")
+q2 := sqlbuilder.Select("id").From("admins")
+sql, _ = q1.Union(q2).Build()
+
+// Conditional building — only applies the clause when the condition is true
+sql, args = sqlbuilder.Select("id").From("users").
+    When(onlyActive, func(s *sqlbuilder.SelectBuilder) {
+        s.Where("active = $1", true)
+    }).Build()
+
+// Clone for safe reuse — mutations to the clone don't affect the original
+base := sqlbuilder.Select("id", "name").From("users").Where("active = $1", true)
+adminQuery := base.Clone().Where("role = $1", "admin")
+userQuery := base.Clone().Where("role = $1", "user")
+
+// --- INSERT ---
+sql, args := sqlbuilder.Insert("users").
+    Columns("name", "email").
+    Values("Alice", "alice@example.com").
+    Returning("id").
+    Build()
+
+// Batch insert
+sql, args := sqlbuilder.Insert("users").
+    Columns("name", "email").
+    Values("Alice", "alice@example.com").
+    Values("Bob", "bob@example.com").
+    Build()
+
+// Upsert (ON CONFLICT)
+sql, args := sqlbuilder.Insert("users").
+    Columns("email", "name").
+    Values("alice@example.com", "Alice").
+    OnConflictUpdate([]string{"email"}, map[string]any{"name": "Alice Updated"}).
+    Build()
+
+// --- UPDATE ---
+sql, args := sqlbuilder.Update("users").
+    Set("name", "Bob").
+    SetExpr("updated_at", sqlbuilder.Raw("NOW()")).
+    WhereEq("id", 1).
+    Build()
+
+// Increment / Decrement
+sql, args = sqlbuilder.Update("products").
+    Increment("view_count", 1).
+    WhereEq("id", 42).
+    Build()
+// sql:  "UPDATE products SET view_count = view_count + $1 WHERE id = $2"
+// args: [1, 42]
+
+// --- DELETE ---
+sql, args := sqlbuilder.Delete("users").
+    WhereEq("id", 1).
+    Returning("id", "name").
+    Build()
+
+// --- Integration with request package ---
+pg, _ := request.Paginate(r)
+sorts, _ := request.ParseSort(r, sortCfg)
+filters, _ := request.ParseFilters(r, filterCfg)
+
+cols := map[string]string{"name": "u.name", "created_at": "u.created_at"}
+
+sql, args := sqlbuilder.Select("u.id", "u.name", "u.email").
+    From("users u").
+    LeftJoin("profiles p", "p.user_id = u.id").
+    Where("u.active = $1", true).
+    ApplyFilters(filters, cols).
+    ApplySort(sorts, cols).
+    ApplyPagination(pg).
+    Build()
 ```
 
 ### apitest
@@ -616,6 +759,7 @@ fmt.Println(env.Success, env.Message)
 ## Roadmap
 
 - [x] `health` — Health check endpoint builder with dependency checks
+- [x] `sqlbuilder` — Fluent SQL query builder with request package integration
 - [ ] `ctxutil` — Typed context helpers
 - [ ] `observe` — OpenTelemetry integration
 
