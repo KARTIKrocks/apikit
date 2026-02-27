@@ -17,6 +17,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`health`** — Health check endpoint builder with dependency checks, timeouts, and liveness/readiness probes
 - **`config`** — Load configuration from env vars, `.env` files, and JSON files into typed structs with validation
 - **`sqlbuilder`** — Fluent SQL query builder for PostgreSQL, MySQL, and SQLite with JOINs, CTEs, UNION, upsert, and `request` package integration
+- **`dbx`** — Generic row scanner for `database/sql` — eliminates scan boilerplate, maps rows to structs via `db` tags, integrates with `sqlbuilder`
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
 
 ## Install
@@ -775,6 +776,50 @@ sql, args := sqlbuilder.Select("u.id", "u.name", "u.email").
     Build()
 ```
 
+### dbx
+
+Lightweight, generic row scanner for `database/sql`. Eliminates scan boilerplate while keeping full SQL control.
+
+```go
+import "github.com/KARTIKrocks/apikit/dbx"
+
+// Set default connection once at startup
+dbx.SetDefault(db)
+
+// Define your struct with db tags
+type User struct {
+    ID    int     `db:"id"`
+    Name  string  `db:"name"`
+    Email *string `db:"email"` // nullable → pointer
+}
+
+// --- Fetch rows ---
+users, err := dbx.QueryAll[User](ctx, "SELECT id, name, email FROM users WHERE active = $1", true)
+
+// --- Fetch one row (returns errors.CodeNotFound if no rows) ---
+user, err := dbx.QueryOne[User](ctx, "SELECT id, name, email FROM users WHERE id = $1", 42)
+
+// --- Execute statements ---
+result, err := dbx.Exec(ctx, "DELETE FROM users WHERE id = $1", 42)
+
+// --- sqlbuilder integration ---
+q := sqlbuilder.Select("id", "name", "email").
+    From("users").
+    WhereEq("active", true).
+    Build()
+users, err := dbx.QueryAllQ[User](ctx, q)
+
+// --- Transactions (context-based) ---
+tx, _ := db.BeginTx(ctx, nil)
+ctx = dbx.WithTx(ctx, tx)
+
+dbx.Exec(ctx, "INSERT INTO users (name) VALUES ($1)", "Alice")        // uses tx
+user, err := dbx.QueryOne[User](ctx, "SELECT id, name FROM users WHERE name = $1", "Alice") // uses tx
+tx.Commit()
+```
+
+Column matching is order-independent. Unmatched result columns are silently discarded. Embedded structs (including pointer embeds) are supported. Type mappings are cached per-type via `sync.Map`.
+
 ### apitest
 
 Fluent test helpers for building requests and asserting responses against your handlers.
@@ -826,6 +871,7 @@ fmt.Println(env.Success, env.Message)
 
 - [x] `health` — Health check endpoint builder with dependency checks
 - [x] `sqlbuilder` — Fluent SQL query builder with request package integration
+- [x] `dbx` — Generic row scanner for `database/sql` with `sqlbuilder` integration
 - [ ] `ctxutil` — Typed context helpers
 - [ ] `observe` — OpenTelemetry integration
 
