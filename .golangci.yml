@@ -1,0 +1,51 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gocritic
+    - revive
+  exclusions:
+    rules:
+      # Allow unchecked errors in tests for brevity.
+      - path: _test\.go
+        linters:
+          - errcheck
+      # Allow unused params in tests (http handler signatures).
+      - path: _test\.go
+        linters:
+          - revive
+        text: unused-parameter
+      # Allow unused ctx in interface implementations (signature required by interface).
+      - linters:
+          - revive
+        text: unused-parameter.*ctx
+      # Package name "errors" intentionally shadows stdlib.
+      - path: errors/
+        linters:
+          - revive
+        text: var-naming.*conflict
+      # Allow min/max as parameter names — clear and idiomatic for range functions.
+      - linters:
+          - revive
+        text: redefines-builtin-id
+      # example main doesn't need a package comment.
+      - path: examples/
+        linters:
+          - revive
+        text: package-comments
+      # Allow unused params in example handlers (http handler signatures).
+      - path: examples/
+        linters:
+          - revive
+        text: unused-parameter
+      # request.RequestID is an intentional public API name.
+      - path: request/header\.go
+        linters:
+          - revive
+        text: stutters
