@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-02-27
+
+### Added
+
+- **dbx** — New `dbx` package: lightweight, generic row scanner for `database/sql` — eliminates scan boilerplate while keeping full SQL control
+- **dbx** — `SetDefault(db)` sets the package-level connection once at startup; all functions use it automatically
+- **dbx** — `WithTx(ctx, tx)` returns a context that overrides the default with a transaction — all dbx calls in that context use the tx
+- **dbx** — `QueryAll[T](ctx, query, args...)` scans all rows into `[]T`; returns empty slice for no rows
+- **dbx** — `QueryOne[T](ctx, query, args...)` scans the first row into `T`; returns `errors.CodeNotFound` for no rows
+- **dbx** — `Exec(ctx, query, args...)` executes non-returning queries with `errors.CodeDatabaseError` wrapping
+- **dbx** — Q-suffixed variants (`QueryAllQ`, `QueryOneQ`, `ExecQ`) accept `sqlbuilder.Query` directly
+- **dbx** — Struct mapping via `db:"column_name"` tags; `db:"-"` to skip; untagged fields ignored
+- **dbx** — Pointer fields (`*string`, `*int`, etc.) handle SQL NULLs naturally
+- **dbx** — Column matching is order-independent; unmatched result columns silently discarded
+- **dbx** — Embedded struct support (including exported pointer embeds like `*Base`)
+- **dbx** — Reflection-based type mapping cached per-type via `sync.Map` (built once per process lifetime)
+
 ## [0.8.0] - 2026-02-25
 
 ### Added
