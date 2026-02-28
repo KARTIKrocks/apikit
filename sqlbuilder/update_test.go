@@ -272,6 +272,37 @@ func TestUpdateIncrementDecrement(t *testing.T) {
 	expectArgs(t, []any{100, 100, 1}, args)
 }
 
+func TestUpdateReturningExpr(t *testing.T) {
+	sql, args := Update("users").
+		Set("name", "Bob").
+		Where("id = $1", 1).
+		Returning("id").
+		ReturningExpr(Raw("NOW()").As("updated_at")).
+		Build()
+	expectSQL(t, "UPDATE users SET name = $1 WHERE id = $2 RETURNING id, NOW() AS updated_at", sql)
+	expectArgs(t, []any{"Bob", 1}, args)
+}
+
+func TestUpdateReturningExprOnly(t *testing.T) {
+	sql, args := Update("users").
+		Set("active", false).
+		Where("id = $1", 1).
+		ReturningExpr(Raw("id"), Raw("name")).
+		Build()
+	expectSQL(t, "UPDATE users SET active = $1 WHERE id = $2 RETURNING id, name", sql)
+	expectArgs(t, []any{false, 1}, args)
+}
+
+func TestUpdateWhereColumn(t *testing.T) {
+	sql, args := Update("users u").
+		Set("synced", true).
+		From("profiles p").
+		WhereColumn("u.id", "=", "p.user_id").
+		Build()
+	expectSQL(t, "UPDATE users u SET synced = $1 FROM profiles p WHERE u.id = p.user_id", sql)
+	expectArgs(t, []any{true}, args)
+}
+
 func TestUpdateQuery(t *testing.T) {
 	q := Update("users").Set("name", "Bob").Where("id = $1", 1).Query()
 	expectSQL(t, "UPDATE users SET name = $1 WHERE id = $2", q.SQL)

@@ -13,9 +13,10 @@ type InsertBuilder struct {
 	columns    []string
 	rows       [][]any
 	fromSelect *SelectBuilder
-	onConflict string
-	returning  []string
-	ctes       []cte
+	onConflict    string
+	returning     []string
+	returningExpr []Expr
+	ctes          []cte
 }
 
 // Insert creates a new InsertBuilder for the given table.
@@ -146,6 +147,12 @@ func (b *InsertBuilder) Returning(cols ...string) *InsertBuilder {
 	return b
 }
 
+// ReturningExpr adds expression columns to the RETURNING clause.
+func (b *InsertBuilder) ReturningExpr(exprs ...Expr) *InsertBuilder {
+	b.returningExpr = append(b.returningExpr, exprs...)
+	return b
+}
+
 // With adds a CTE (Common Table Expression).
 func (b *InsertBuilder) With(name string, q Query) *InsertBuilder {
 	b.ctes = append(b.ctes, cte{name: name, query: q})
@@ -177,6 +184,7 @@ func (b *InsertBuilder) Clone() *InsertBuilder {
 		c.rows[i] = slices.Clone(row)
 	}
 	c.returning = slices.Clone(b.returning)
+	c.returningExpr = slices.Clone(b.returningExpr)
 	c.ctes = slices.Clone(b.ctes)
 	if b.fromSelect != nil {
 		c.fromSelect = b.fromSelect.Clone()
@@ -254,7 +262,7 @@ func (b *InsertBuilder) Build() (string, []any) {
 		}
 	}
 
-	writeReturning(&sb, b.returning)
+	writeReturningWithExpr(&sb, b.returning, b.returningExpr, ac, &args)
 
 	return convertPlaceholders(sb.String(), b.dialect), args
 }

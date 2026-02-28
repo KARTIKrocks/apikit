@@ -112,6 +112,30 @@ func TestInsertWithCTE(t *testing.T) {
 	expectArgs(t, []any{false}, args)
 }
 
+func TestInsertReturningExpr(t *testing.T) {
+	sql, args := Insert("users").
+		Columns("name", "email").
+		Values("Alice", "alice@example.com").
+		Returning("id").
+		ReturningExpr(Raw("NOW()").As("created_at")).
+		Build()
+	expectSQL(t, "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, NOW() AS created_at", sql)
+	expectArgs(t, []any{"Alice", "alice@example.com"}, args)
+}
+
+func TestInsertReturningExprOnly(t *testing.T) {
+	sql, args := Insert("users").
+		Columns("name").
+		Values("Alice").
+		ReturningExpr(
+			Raw("id"),
+			CoalesceExpr(RawExpr("$1", "default"), Raw("name")).As("display"),
+		).
+		Build()
+	expectSQL(t, "INSERT INTO users (name) VALUES ($1) RETURNING id, COALESCE($2, name) AS display", sql)
+	expectArgs(t, []any{"Alice", "default"}, args)
+}
+
 func TestInsertWhen(t *testing.T) {
 	addReturning := true
 	sql, args := Insert("users").

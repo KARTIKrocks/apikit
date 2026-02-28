@@ -136,13 +136,30 @@ func writeCTEs(sb *strings.Builder, ctes []cte, ac *argCounter) []any {
 	return allArgs
 }
 
-// writeReturning writes the RETURNING clause if columns are present.
-func writeReturning(sb *strings.Builder, cols []string) {
-	if len(cols) == 0 {
+// writeReturningWithExpr writes the RETURNING clause supporting both plain columns and Exprs.
+func writeReturningWithExpr(sb *strings.Builder, cols []string, exprs []Expr, ac *argCounter, args *[]any) {
+	if len(cols) == 0 && len(exprs) == 0 {
 		return
 	}
 	sb.WriteString(" RETURNING ")
-	writeJoined(sb, cols, ", ")
+	written := 0
+	for _, col := range cols {
+		if written > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(col)
+		written++
+	}
+	for _, e := range exprs {
+		if written > 0 {
+			sb.WriteString(", ")
+		}
+		rebased := rebasePlaceholders(e.SQL, ac.offset())
+		sb.WriteString(rebased)
+		*args = append(*args, e.Args...)
+		ac.n += len(e.Args)
+		written++
+	}
 }
 
 // writeJoined writes string slice elements separated by sep directly into the builder,

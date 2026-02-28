@@ -10,9 +10,10 @@ type DeleteBuilder struct {
 	dialect    Dialect
 	table      string
 	using      []string
-	conditions []condition
-	returning  []string
-	ctes       []cte
+	conditions    []condition
+	returning     []string
+	returningExpr []Expr
+	ctes          []cte
 }
 
 // Delete creates a new DeleteBuilder for the given table.
@@ -118,6 +119,12 @@ func (b *DeleteBuilder) WhereILike(col string, val any) *DeleteBuilder {
 	return b
 }
 
+// WhereColumn adds a column-to-column comparison condition (e.g., "a.id = b.id").
+func (b *DeleteBuilder) WhereColumn(col1, op, col2 string) *DeleteBuilder {
+	b.conditions = append(b.conditions, condition{sql: col1 + " " + op + " " + col2})
+	return b
+}
+
 // WhereExists adds a "EXISTS (subquery)" condition.
 func (b *DeleteBuilder) WhereExists(sub *SelectBuilder) *DeleteBuilder {
 	sql, args := buildSelectPostgres(sub)
@@ -178,6 +185,7 @@ func (b *DeleteBuilder) Clone() *DeleteBuilder {
 	c.using = slices.Clone(b.using)
 	c.conditions = slices.Clone(b.conditions)
 	c.returning = slices.Clone(b.returning)
+	c.returningExpr = slices.Clone(b.returningExpr)
 	c.ctes = slices.Clone(b.ctes)
 	return &c
 }
@@ -185,6 +193,12 @@ func (b *DeleteBuilder) Clone() *DeleteBuilder {
 // Returning adds a RETURNING clause.
 func (b *DeleteBuilder) Returning(cols ...string) *DeleteBuilder {
 	b.returning = cols
+	return b
+}
+
+// ReturningExpr adds expression columns to the RETURNING clause.
+func (b *DeleteBuilder) ReturningExpr(exprs ...Expr) *DeleteBuilder {
+	b.returningExpr = append(b.returningExpr, exprs...)
 	return b
 }
 
@@ -226,7 +240,7 @@ func (b *DeleteBuilder) Build() (string, []any) {
 	whereArgs := writeWhereClause(&sb, b.conditions, ac)
 	args = append(args, whereArgs...)
 
-	writeReturning(&sb, b.returning)
+	writeReturningWithExpr(&sb, b.returning, b.returningExpr, ac, &args)
 
 	return convertPlaceholders(sb.String(), b.dialect), args
 }

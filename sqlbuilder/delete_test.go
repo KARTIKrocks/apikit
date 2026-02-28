@@ -190,6 +190,36 @@ func TestDeleteClone(t *testing.T) {
 	expectArgs(t, []any{false, "2023-01-01"}, argsClone)
 }
 
+func TestDeleteReturningExpr(t *testing.T) {
+	sql, args := Delete("users").
+		Where("id = $1", 1).
+		Returning("id").
+		ReturningExpr(Raw("name")).
+		Build()
+	expectSQL(t, "DELETE FROM users WHERE id = $1 RETURNING id, name", sql)
+	expectArgs(t, []any{1}, args)
+}
+
+func TestDeleteReturningExprWithParams(t *testing.T) {
+	sql, args := Delete("users").
+		Where("active = $1", false).
+		ReturningExpr(
+			CoalesceExpr(RawExpr("$1", "archived"), Raw("name")).As("label"),
+		).
+		Build()
+	expectSQL(t, "DELETE FROM users WHERE active = $1 RETURNING COALESCE($2, name) AS label", sql)
+	expectArgs(t, []any{false, "archived"}, args)
+}
+
+func TestDeleteWhereColumn(t *testing.T) {
+	sql, args := Delete("users u").
+		Using("blacklist b").
+		WhereColumn("u.email", "=", "b.email").
+		Build()
+	expectSQL(t, "DELETE FROM users u USING blacklist b WHERE u.email = b.email", sql)
+	expectArgs(t, nil, args)
+}
+
 func TestDeleteQuery(t *testing.T) {
 	q := Delete("users").Where("id = $1", 1).Query()
 	expectSQL(t, "DELETE FROM users WHERE id = $1", q.SQL)
