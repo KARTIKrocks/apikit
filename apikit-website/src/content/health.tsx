@@ -15,33 +15,51 @@ export default function HealthDocs() {
         'Status: healthy, degraded, or unhealthy',
         'Standard JSON response format',
       ]}
-      apiTable={[
-        { name: 'NewChecker(opts...)', description: 'Create a health checker' },
-        { name: 'WithTimeout(d)', description: 'Set per-check timeout' },
-        { name: 'AddCheck(name, fn)', description: 'Add a critical dependency check' },
-        { name: 'AddNonCriticalCheck(name, fn)', description: 'Add a non-critical check (degraded on failure)' },
-        { name: 'Handler()', description: 'HTTP handler for readiness probe' },
-        { name: 'LiveHandler()', description: 'HTTP handler for liveness probe (always 200)' },
-        { name: 'Check(ctx)', description: 'Run checks programmatically' },
-      ]}
     >
-      <CodeBlock code={`h := health.NewChecker(health.WithTimeout(3 * time.Second))
+      <h3 id="health-creating" className="text-lg font-semibold text-text-heading mt-8 mb-2">Creating a Checker</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Function</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">NewChecker(opts...)</td><td className="py-2 text-text-muted">Create a health checker with options</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithTimeout(d)</td><td className="py-2 text-text-muted">Set per-check timeout</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`h := health.NewChecker(health.WithTimeout(3 * time.Second))`} />
 
-// Critical checks — failure → "unhealthy" (503)
-h.AddCheck("postgres", func(ctx context.Context) error {
+      <h3 id="health-checks" className="text-lg font-semibold text-text-heading mt-8 mb-2">Adding Checks</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AddCheck(name, fn)</td><td className="py-2 text-text-muted">Add critical check (failure = unhealthy, 503)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AddNonCriticalCheck(name, fn)</td><td className="py-2 text-text-muted">Add non-critical check (failure = degraded, 200)</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`h.AddCheck("postgres", func(ctx context.Context) error {
     return db.PingContext(ctx)
 })
 
-// Non-critical checks — failure → "degraded" (200)
 h.AddNonCriticalCheck("redis", func(ctx context.Context) error {
     return rdb.Ping(ctx).Err()
 })
 
-// Register with your router
-r.Get("/health", h.Handler())          // Full check (readiness)
-r.Get("/health/live", h.LiveHandler()) // Always 200 (liveness)`} />
+h.AddNonCriticalCheck("smtp", func(ctx context.Context) error {
+    return smtpClient.Noop()
+})`} />
 
-      <h3 className="text-lg font-semibold text-text-heading mt-6 mb-2">Response Format</h3>
+      <h3 id="health-handlers" className="text-lg font-semibold text-text-heading mt-8 mb-2">HTTP Handlers</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Handler()</td><td className="py-2 text-text-muted">HTTP handler for readiness probe (runs all checks)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.LiveHandler()</td><td className="py-2 text-text-muted">HTTP handler for liveness probe (always 200)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Check(ctx)</td><td className="py-2 text-text-muted">Run checks programmatically</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`r.GetFunc("/health", h.Handler())          // readiness probe
+r.GetFunc("/health/live", h.LiveHandler()) // liveness probe (always 200)
+
+// Programmatic check
+result, err := h.Check(ctx)
+fmt.Println(result.Status) // "healthy", "degraded", or "unhealthy"`} />
+
+      <h3 id="health-response" className="text-lg font-semibold text-text-heading mt-8 mb-2">Response Format</h3>
       <CodeBlock lang="json" code={`{
   "success": true,
   "message": "Health check",
@@ -49,7 +67,8 @@ r.Get("/health/live", h.LiveHandler()) // Always 200 (liveness)`} />
     "status": "healthy",
     "checks": {
       "postgres": { "status": "healthy", "duration_ms": 2 },
-      "redis": { "status": "healthy", "duration_ms": 1 }
+      "redis": { "status": "healthy", "duration_ms": 1 },
+      "smtp": { "status": "degraded", "duration_ms": 150, "error": "timeout" }
     },
     "timestamp": 1700000000
   }

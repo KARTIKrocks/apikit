@@ -15,46 +15,88 @@ export default function ApitestDocs() {
         'Decode response into typed structs',
         'Access response envelope directly',
       ]}
-      apiTable={[
-        { name: 'NewRequest(method, path)', description: 'Start building a test request' },
-        { name: '.WithBody(v)', description: 'Set JSON request body' },
-        { name: '.WithBearerToken(token)', description: 'Set Authorization header' },
-        { name: '.WithHeader(k, v)', description: 'Set a request header' },
-        { name: '.WithQuery(k, v)', description: 'Add query parameter' },
-        { name: '.WithPathValue(k, v)', description: 'Set path parameter (Go 1.22+)' },
-        { name: '.Build()', description: 'Build the http.Request' },
-        { name: 'RecordHandler(handler, req)', description: 'Record handler response' },
-        { name: '.AssertStatus(t, code)', description: 'Assert HTTP status code' },
-        { name: '.AssertSuccess(t)', description: 'Assert success: true in envelope' },
-        { name: '.AssertError(t, code)', description: 'Assert error code in response' },
-        { name: '.Decode(v)', description: 'Decode response data into struct' },
-      ]}
     >
-      <CodeBlock code={`// Build a request
-req := apitest.NewRequest("POST", "/users").
-    WithBody(map[string]string{"name": "Alice"}).
+      <h3 id="apitest-requests" className="text-lg font-semibold text-text-heading mt-8 mb-2">Building Requests</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Function / Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">NewRequest(method, path)</td><td className="py-2 text-text-muted">Start building a test request</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.WithBody(v)</td><td className="py-2 text-text-muted">Set JSON body</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.WithBearerToken(token)</td><td className="py-2 text-text-muted">Set Authorization header</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.WithHeader(k, v)</td><td className="py-2 text-text-muted">Set request header</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.WithQuery(k, v)</td><td className="py-2 text-text-muted">Add query parameter</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.WithPathValue(k, v)</td><td className="py-2 text-text-muted">Set path parameter (Go 1.22+)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Build()</td><td className="py-2 text-text-muted">Build *http.Request</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`req := apitest.NewRequest("POST", "/users").
+    WithBody(map[string]string{"name": "Alice", "email": "alice@example.com"}).
     WithBearerToken("valid-token").
     WithHeader("X-Request-ID", "test-123").
     WithQuery("notify", "true").
-    WithPathValue("id", "42").
     Build()
 
-// Record handler response
-resp := apitest.RecordHandler(createUser, req)
+req := apitest.NewRequest("GET", "/users/{id}").
+    WithPathValue("id", "42").Build()`} />
 
-// Fluent assertions
-resp.AssertStatus(t, 201)
-resp.AssertSuccess(t)
-resp.AssertHeader(t, "X-Request-ID", "test-123")
-resp.AssertBodyContains(t, "Alice")
-resp.AssertError(t, "NOT_FOUND")
-resp.AssertValidationError(t, "email")
+      <h3 id="apitest-recording" className="text-lg font-semibold text-text-heading mt-8 mb-2">Recording Responses</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Function</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">RecordHandler(handler, req)</td><td className="py-2 text-text-muted">Execute handler, return recorded response</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`resp := apitest.RecordHandler(createUser, req)`} />
 
-// Decode response
-var user User
+      <h3 id="apitest-assertions" className="text-lg font-semibold text-text-heading mt-8 mb-2">Assertions</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AssertStatus(t, code)</td><td className="py-2 text-text-muted">Assert HTTP status code</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AssertSuccess(t)</td><td className="py-2 text-text-muted">Assert success: true</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AssertError(t, code)</td><td className="py-2 text-text-muted">Assert error code</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AssertHeader(t, key, val)</td><td className="py-2 text-text-muted">Assert header value</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AssertBodyContains(t, substr)</td><td className="py-2 text-text-muted">Assert body contains string</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.AssertValidationError(t, field)</td><td className="py-2 text-text-muted">Assert validation error for field</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`func TestCreateUser(t *testing.T) {
+    req := apitest.NewRequest("POST", "/users").
+        WithBody(map[string]string{"name": "Alice", "email": "alice@example.com"}).
+        Build()
+    resp := apitest.RecordHandler(createUser, req)
+
+    resp.AssertStatus(t, 201)
+    resp.AssertSuccess(t)
+    resp.AssertHeader(t, "Content-Type", "application/json")
+    resp.AssertBodyContains(t, "Alice")
+}
+
+func TestCreateUser_Validation(t *testing.T) {
+    req := apitest.NewRequest("POST", "/users").WithBody(map[string]string{}).Build()
+    resp := apitest.RecordHandler(createUser, req)
+
+    resp.AssertStatus(t, 422)
+    resp.AssertError(t, "VALIDATION")
+    resp.AssertValidationError(t, "email")
+}
+
+func TestGetUser_NotFound(t *testing.T) {
+    req := apitest.NewRequest("GET", "/users/{id}").WithPathValue("id", "999").Build()
+    resp := apitest.RecordHandler(getUser, req)
+
+    resp.AssertStatus(t, 404)
+    resp.AssertError(t, "NOT_FOUND")
+}`} />
+
+      <h3 id="apitest-decoding" className="text-lg font-semibold text-text-heading mt-8 mb-2">Decoding</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Decode(v)</td><td className="py-2 text-text-muted">Decode response data into struct</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Envelope()</td><td className="py-2 text-text-muted">Access full response envelope</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`var user User
 resp.Decode(&user)
+assert.Equal(t, "Alice", user.Name)
 
-// Access envelope directly
 env, _ := resp.Envelope()
 fmt.Println(env.Success, env.Message)`} />
     </ModuleSection>

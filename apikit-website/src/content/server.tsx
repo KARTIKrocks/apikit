@@ -15,18 +15,32 @@ export default function ServerDocs() {
         'OnStart and OnShutdown lifecycle hooks',
         'Structured logging with slog',
       ]}
-      apiTable={[
-        { name: 'New(handler, opts...)', description: 'Create a new server' },
-        { name: 'WithAddr(addr)', description: 'Set listen address' },
-        { name: 'WithTLS(cert, key)', description: 'Enable HTTPS' },
-        { name: 'WithReadTimeout(d)', description: 'Set read timeout' },
-        { name: 'WithWriteTimeout(d)', description: 'Set write timeout' },
-        { name: 'WithShutdownTimeout(d)', description: 'Set graceful shutdown timeout' },
-        { name: 'OnStart(fn)', description: 'Register start lifecycle hook' },
-        { name: 'OnShutdown(fn)', description: 'Register shutdown lifecycle hook' },
-        { name: 'Start()', description: 'Start server (blocks until shutdown)' },
-      ]}
     >
+      <h3 id="server-creating" className="text-lg font-semibold text-text-heading mt-8 mb-2">Creating a Server</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Function</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">New(handler, opts...)</td><td className="py-2 text-text-muted">Create a new server with options</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Start()</td><td className="py-2 text-text-muted">Start server (blocks until shutdown)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Addr()</td><td className="py-2 text-text-muted">Get the listen address</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`srv := server.New(r, server.WithAddr(":8080"))
+if err := srv.Start(); err != nil {
+    log.Fatal(err)
+}`} />
+
+      <h3 id="server-options" className="text-lg font-semibold text-text-heading mt-8 mb-2">Options</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Option</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithAddr(addr)</td><td className="py-2 text-text-muted">Set listen address (default ":8080")</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithReadTimeout(d)</td><td className="py-2 text-text-muted">Set read timeout</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithWriteTimeout(d)</td><td className="py-2 text-text-muted">Set write timeout</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithIdleTimeout(d)</td><td className="py-2 text-text-muted">Set idle connection timeout</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithShutdownTimeout(d)</td><td className="py-2 text-text-muted">Set graceful shutdown timeout</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithLogger(logger)</td><td className="py-2 text-text-muted">Set structured logger</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithTLS(cert, key)</td><td className="py-2 text-text-muted">Enable HTTPS</td></tr>
+        </tbody></table>
+      </div>
       <CodeBlock code={`srv := server.New(handler,
     server.WithAddr(":8080"),
     server.WithReadTimeout(15 * time.Second),
@@ -34,27 +48,29 @@ export default function ServerDocs() {
     server.WithIdleTimeout(120 * time.Second),
     server.WithShutdownTimeout(10 * time.Second),
     server.WithLogger(slog.Default()),
-)
+)`} />
 
-// HTTPS — just add WithTLS
-srv := server.New(handler,
-    server.WithAddr(":443"),
-    server.WithTLS("cert.pem", "key.pem"),
-)
-
-// Lifecycle hooks
-srv.OnStart(func() error {
+      <h3 id="server-lifecycle" className="text-lg font-semibold text-text-heading mt-8 mb-2">Lifecycle Hooks</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.OnStart(fn)</td><td className="py-2 text-text-muted">Hook called before listening</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.OnShutdown(fn)</td><td className="py-2 text-text-muted">Hook called during graceful shutdown</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`srv.OnStart(func() error {
     slog.Info("connecting to database...")
     return db.Connect()
 })
 srv.OnShutdown(func(ctx context.Context) error {
     return db.Close()
-})
+})`} />
 
-// Blocks until SIGINT/SIGTERM, then drains connections
-if err := srv.Start(); err != nil {
-    log.Fatal(err)
-}`} />
+      <h3 id="server-tls" className="text-lg font-semibold text-text-heading mt-8 mb-2">TLS</h3>
+      <CodeBlock code={`srv := server.New(handler,
+    server.WithAddr(":443"),
+    server.WithTLS("cert.pem", "key.pem"),
+)
+srv.Start()`} />
     </ModuleSection>
   );
 }

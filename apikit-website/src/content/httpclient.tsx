@@ -17,37 +17,58 @@ export default function HttpclientDocs() {
         'HTTPClient interface for easy mocking in tests',
         'MockClient with call recording and assertions',
       ]}
-      apiTable={[
-        { name: 'New(baseURL, opts...)', description: 'Create a new HTTP client' },
-        { name: 'Get/Post/Put/Patch/Delete(ctx, path, ...)', description: 'HTTP methods' },
-        { name: 'Request().Method().Path().Body().Send(ctx)', description: 'Fluent request builder' },
-        { name: 'SetBearerToken(token)', description: 'Set default Authorization header' },
-        { name: 'WithCircuitBreaker(threshold, timeout)', description: 'Enable circuit breaker' },
-        { name: 'NewMockClient()', description: 'Create a mock client for testing' },
-      ]}
     >
+      <h3 id="httpclient-creating" className="text-lg font-semibold text-text-heading mt-8 mb-2">Creating a Client</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Function / Option</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">New(baseURL, opts...)</td><td className="py-2 text-text-muted">Create a new HTTP client</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithTimeout(d)</td><td className="py-2 text-text-muted">Request timeout</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithMaxRetries(n)</td><td className="py-2 text-text-muted">Max retry attempts</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithRetryDelay(d) / WithMaxRetryDelay(d)</td><td className="py-2 text-text-muted">Retry delay / cap</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithLogger(logger)</td><td className="py-2 text-text-muted">Structured logger</td></tr>
+        </tbody></table>
+      </div>
       <CodeBlock code={`client := httpclient.New("https://api.example.com",
     httpclient.WithTimeout(10 * time.Second),
     httpclient.WithMaxRetries(3),
     httpclient.WithRetryDelay(500 * time.Millisecond),
     httpclient.WithMaxRetryDelay(5 * time.Second),
     httpclient.WithLogger(slog.Default()),
-)
+)`} />
 
-// Basic requests
-resp, err := client.Get(ctx, "/users")
+      <h3 id="httpclient-methods" className="text-lg font-semibold text-text-heading mt-8 mb-2">HTTP Methods</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Get / .Post / .Put / .Patch / .Delete</td><td className="py-2 text-text-muted">HTTP methods with auto JSON body encoding</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`resp, err := client.Get(ctx, "/users")
 resp, err := client.Post(ctx, "/users", map[string]string{"name": "Alice"})
+resp, err := client.Put(ctx, "/users/1", updateReq)
+resp, err := client.Patch(ctx, "/users/1", patchReq)
+resp, err := client.Delete(ctx, "/users/1")`} />
 
-// Response helpers
+      <h3 id="httpclient-response" className="text-lg font-semibold text-text-heading mt-8 mb-2">Response Handling</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">resp.JSON(&v)</td><td className="py-2 text-text-muted">Decode JSON into v</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">resp.String()</td><td className="py-2 text-text-muted">Body as string</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">resp.StatusCode / resp.IsSuccess()</td><td className="py-2 text-text-muted">Status code / 2xx check</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`resp, err := client.Get(ctx, "/users")
+if !resp.IsSuccess() {
+    return fmt.Errorf("API error: %d", resp.StatusCode)
+}
 var users []User
-resp.JSON(&users)
-fmt.Println(resp.String(), resp.StatusCode, resp.IsSuccess())
+resp.JSON(&users)`} />
 
-// Default headers
-client.SetBearerToken("my-token")
-client.SetHeader("X-API-Key", "key")`} />
-
-      <h3 className="text-lg font-semibold text-text-heading mt-6 mb-2">Fluent Request Builder</h3>
+      <h3 id="httpclient-builder" className="text-lg font-semibold text-text-heading mt-8 mb-2">Request Builder</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.Request().Method().Path().Header().Param().Body().Send(ctx)</td><td className="py-2 text-text-muted">Fluent request builder chain</td></tr>
+        </tbody></table>
+      </div>
       <CodeBlock code={`resp, err := client.Request().
     Method("POST").
     Path("/search").
@@ -56,13 +77,35 @@ client.SetHeader("X-API-Key", "key")`} />
     Body(searchReq).
     Send(ctx)`} />
 
-      <h3 className="text-lg font-semibold text-text-heading mt-6 mb-2">Circuit Breaker</h3>
-      <CodeBlock code={`// Opens after 5 failures, resets after 30s
-client := httpclient.New("https://api.example.com",
-    httpclient.WithCircuitBreaker(5, 30 * time.Second),
-)`} />
+      <h3 id="httpclient-headers" className="text-lg font-semibold text-text-heading mt-8 mb-2">Default Headers</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.SetBearerToken(token)</td><td className="py-2 text-text-muted">Set Authorization: Bearer</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.SetHeader(key, val)</td><td className="py-2 text-text-muted">Set default header</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`client.SetBearerToken("my-jwt-token")
+client.SetHeader("X-API-Key", "key-123")`} />
 
-      <h3 className="text-lg font-semibold text-text-heading mt-6 mb-2">Mocking in Tests</h3>
+      <h3 id="httpclient-circuit" className="text-lg font-semibold text-text-heading mt-8 mb-2">Circuit Breaker</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Option</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">WithCircuitBreaker(threshold, timeout)</td><td className="py-2 text-text-muted">Open after N failures, reset after timeout</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`client := httpclient.New("https://api.example.com",
+    httpclient.WithCircuitBreaker(5, 30 * time.Second),
+)
+// Open → fail fast → half-open → test request → close/reopen`} />
+
+      <h3 id="httpclient-mocking" className="text-lg font-semibold text-text-heading mt-8 mb-2">Mocking</h3>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">Function / Method</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">NewMockClient()</td><td className="py-2 text-text-muted">Create mock (implements HTTPClient)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.OnGet / .OnPost / .OnError</td><td className="py-2 text-text-muted">Mock responses</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">.GetCallCount()</td><td className="py-2 text-text-muted">Number of recorded calls</td></tr>
+        </tbody></table>
+      </div>
       <CodeBlock code={`mock := httpclient.NewMockClient()
 mock.OnGet("/users", 200, []byte(\`[{"id":1,"name":"Alice"}]\`))
 mock.OnPost("/users", 201, []byte(\`{"id":2}\`))

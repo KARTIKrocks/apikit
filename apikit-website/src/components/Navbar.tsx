@@ -24,7 +24,7 @@ export default function Navbar({ onMenuToggle, menuOpen }: NavbarProps) {
 
       <a href="#top" className="flex items-center gap-2">
         <span className="text-xl font-bold text-text-heading">apikit</span>
-        <span className="text-xs font-medium bg-primary/20 text-primary px-2 py-0.5 rounded-full">v0.9.0</span>
+        <span className="text-xs font-medium bg-primary/20 text-primary px-2 py-0.5 rounded-full">v0.10.0</span>
       </a>
 
       <div className="flex-1" />
