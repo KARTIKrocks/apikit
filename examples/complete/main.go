@@ -289,13 +289,13 @@ func transferRole(db *sql.DB) func(http.ResponseWriter, *http.Request) error {
 		// Both operations use the same transaction
 		q1 := sqlbuilder.Update("users").Set("role", "user").Where("id = $1", fromID).Query()
 		if _, err := dbx.ExecQ(ctx, q1); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return err
 		}
 
 		q2 := sqlbuilder.Update("users").Set("role", "admin").Where("id = $1", toID).Query()
 		if _, err := dbx.ExecQ(ctx, q2); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return err
 		}
 
@@ -331,7 +331,7 @@ func main() {
 		logger.Error("failed to open database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	dbx.SetDefault(db)
 
 	// Configure request defaults
@@ -415,6 +415,5 @@ func main() {
 
 	if err := srv.Start(); err != nil {
 		logger.Error("server error", "error", err)
-		os.Exit(1)
 	}
 }
