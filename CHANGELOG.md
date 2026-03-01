@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-02-28
+
+### Added
+
+- **sqlbuilder** — `Coalesce(exprs ...string)` and `CoalesceExpr(exprs ...Expr)` for `COALESCE(a, b, c)` expressions with placeholder rebasing
+- **sqlbuilder** — `NullIf(expr1, expr2 string)` and `NullIfExpr(expr1, expr2 Expr)` for `NULLIF(a, b)` expressions
+- **sqlbuilder** — `Cast(expr, typeName string)` and `CastExpr(expr Expr, typeName string)` for `CAST(x AS type)` expressions
+- **sqlbuilder** — `CaseBuilder` with `Case`, `When`, `WhenExpr`, `Else`, `ElseExpr`, `End` for building `CASE WHEN ... THEN ... ELSE ... END` expressions
+- **sqlbuilder** — `WindowBuilder` with `Window`, `PartitionBy`, `OrderBy`, `Build` for window specifications
+- **sqlbuilder** — Window function constructors: `RowNumber`, `Rank`, `DenseRank`, `Ntile`, `Lag`, `Lead`
+- **sqlbuilder** — `Expr.Over(w *WindowBuilder)` and `Expr.OverRaw(clause string)` to append `OVER (...)` to any expression
+- **sqlbuilder** — `WhereColumn(col1, op, col2 string)` on `SelectBuilder`, `UpdateBuilder`, and `DeleteBuilder` for column-to-column comparisons with no args
+- **sqlbuilder** — `DistinctOn(cols ...string)` on `SelectBuilder` for PostgreSQL `DISTINCT ON (cols)` support
+- **sqlbuilder** — `GroupByExpr(expr Expr)` on `SelectBuilder` for expression-based GROUP BY with placeholder rebasing
+- **sqlbuilder** — `HavingIn(col string, vals ...any)` and `HavingBetween(col string, low, high any)` on `SelectBuilder`
+- **sqlbuilder** — `JoinSubquery`, `LeftJoinSubquery`, `RightJoinSubquery`, `FullJoinSubquery` on `SelectBuilder` for joining against subqueries with alias and placeholder rebasing
+- **sqlbuilder** — `ReturningExpr(exprs ...Expr)` on `InsertBuilder`, `UpdateBuilder`, and `DeleteBuilder` for expression columns in RETURNING clauses with placeholder rebasing
+
 ## [0.9.0] - 2026-02-27
 
 ### Added

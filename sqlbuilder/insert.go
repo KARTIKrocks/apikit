@@ -12,10 +12,12 @@ type InsertBuilder struct {
 	table      string
 	columns    []string
 	rows       [][]any
-	fromSelect *SelectBuilder
-	onConflict string
-	returning  []string
-	ctes       []cte
+	fromSelect   *SelectBuilder
+	onConflict     string
+	onConflictArgs []any
+	returning      []string
+	returningExpr []Expr
+	ctes          []cte
 }
 
 // Insert creates a new InsertBuilder for the given table.
@@ -95,7 +97,7 @@ func (b *InsertBuilder) OnConflictUpdate(target []string, updates map[string]any
 	writeJoined(&sb, target, ", ")
 	sb.WriteString(") DO UPDATE SET ")
 
-	var setArgs []any
+	setArgs := make([]any, 0, len(keys))
 	for i, k := range keys {
 		if i > 0 {
 			sb.WriteString(", ")
@@ -106,8 +108,7 @@ func (b *InsertBuilder) OnConflictUpdate(target []string, updates map[string]any
 		setArgs = append(setArgs, updates[k])
 	}
 	b.onConflict = sb.String()
-	// Store args in the last row position to be picked up during build
-	b.rows = append(b.rows, setArgs)
+	b.onConflictArgs = setArgs
 	return b
 }
 
@@ -135,14 +136,19 @@ func (b *InsertBuilder) OnConflictUpdateExpr(target []string, updates map[string
 		n += len(expr.Args)
 	}
 	b.onConflict = sb.String()
-	// Always append conflict args row (even if empty) so Build() can split correctly
-	b.rows = append(b.rows, setArgs)
+	b.onConflictArgs = setArgs
 	return b
 }
 
 // Returning adds a RETURNING clause.
 func (b *InsertBuilder) Returning(cols ...string) *InsertBuilder {
 	b.returning = cols
+	return b
+}
+
+// ReturningExpr adds expression columns to the RETURNING clause.
+func (b *InsertBuilder) ReturningExpr(exprs ...Expr) *InsertBuilder {
+	b.returningExpr = append(b.returningExpr, exprs...)
 	return b
 }
 
@@ -176,7 +182,9 @@ func (b *InsertBuilder) Clone() *InsertBuilder {
 	for i, row := range b.rows {
 		c.rows[i] = slices.Clone(row)
 	}
+	c.onConflictArgs = slices.Clone(b.onConflictArgs)
 	c.returning = slices.Clone(b.returning)
+	c.returningExpr = slices.Clone(b.returningExpr)
 	c.ctes = slices.Clone(b.ctes)
 	if b.fromSelect != nil {
 		c.fromSelect = b.fromSelect.Clone()
@@ -230,31 +238,24 @@ func (b *InsertBuilder) Build() (string, []any) {
 		sb.WriteString(rebased)
 		args = append(args, selArgs...)
 		ac.n += len(selArgs)
-	case b.onConflict != "" && strings.Contains(b.onConflict, "DO UPDATE"):
-		// For upsert: last row in b.rows is the conflict set args
-		dataRows := b.rows[:len(b.rows)-1]
-		conflictArgs := b.rows[len(b.rows)-1]
-
-		sb.WriteString(" VALUES ")
-		writeValuesRows(&sb, dataRows, ac, &args)
-
-		// ON CONFLICT ... DO UPDATE SET — rebase placeholders
-		sb.WriteByte(' ')
-		rebased := rebasePlaceholders(b.onConflict, ac.offset())
-		sb.WriteString(rebased)
-		args = append(args, conflictArgs...)
-		ac.n += len(conflictArgs)
 	default:
 		sb.WriteString(" VALUES ")
 		writeValuesRows(&sb, b.rows, ac, &args)
 
 		if b.onConflict != "" {
 			sb.WriteByte(' ')
-			sb.WriteString(b.onConflict)
+			if len(b.onConflictArgs) > 0 {
+				rebased := rebasePlaceholders(b.onConflict, ac.offset())
+				sb.WriteString(rebased)
+				args = append(args, b.onConflictArgs...)
+				ac.n += len(b.onConflictArgs)
+			} else {
+				sb.WriteString(b.onConflict)
+			}
 		}
 	}
 
-	writeReturning(&sb, b.returning)
+	writeReturningWithExpr(&sb, b.returning, b.returningExpr, ac, &args)
 
 	return convertPlaceholders(sb.String(), b.dialect), args
 }

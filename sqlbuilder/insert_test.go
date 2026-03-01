@@ -112,6 +112,30 @@ func TestInsertWithCTE(t *testing.T) {
 	expectArgs(t, []any{false}, args)
 }
 
+func TestInsertReturningExpr(t *testing.T) {
+	sql, args := Insert("users").
+		Columns("name", "email").
+		Values("Alice", "alice@example.com").
+		Returning("id").
+		ReturningExpr(Raw("NOW()").As("created_at")).
+		Build()
+	expectSQL(t, "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, NOW() AS created_at", sql)
+	expectArgs(t, []any{"Alice", "alice@example.com"}, args)
+}
+
+func TestInsertReturningExprOnly(t *testing.T) {
+	sql, args := Insert("users").
+		Columns("name").
+		Values("Alice").
+		ReturningExpr(
+			Raw("id"),
+			CoalesceExpr(RawExpr("$1", "default"), Raw("name")).As("display"),
+		).
+		Build()
+	expectSQL(t, "INSERT INTO users (name) VALUES ($1) RETURNING id, COALESCE($2, name) AS display", sql)
+	expectArgs(t, []any{"Alice", "default"}, args)
+}
+
 func TestInsertWhen(t *testing.T) {
 	addReturning := true
 	sql, args := Insert("users").
@@ -175,4 +199,26 @@ func TestInsertQuery(t *testing.T) {
 func TestInsertString(t *testing.T) {
 	s := Insert("users").Columns("name").Values("Alice").String()
 	expectSQL(t, "INSERT INTO users (name) VALUES ($1)", s)
+}
+
+func TestInsertValueMapRespectsColumnOrder(t *testing.T) {
+	sql, args := Insert("t").
+		Columns("b", "a").
+		ValueMap(map[string]any{"a": 1, "b": 2}).
+		Build()
+	expectSQL(t, "INSERT INTO t (b, a) VALUES ($1, $2)", sql)
+	expectArgs(t, []any{2, 1}, args)
+}
+
+func TestInsertOnConflictUpdateExprNoArgs(t *testing.T) {
+	sql, args := Insert("users").
+		Columns("email", "name").
+		Values("alice@example.com", "Alice").
+		OnConflictUpdateExpr(
+			[]string{"email"},
+			map[string]Expr{"name": Raw("EXCLUDED.name")},
+		).
+		Build()
+	expectSQL(t, "INSERT INTO users (email, name) VALUES ($1, $2) ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name", sql)
+	expectArgs(t, []any{"alice@example.com", "Alice"}, args)
 }

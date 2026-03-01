@@ -11,9 +11,10 @@ type UpdateBuilder struct {
 	table      string
 	setClauses []setClause
 	fromTables []string
-	conditions []condition
-	returning  []string
-	ctes       []cte
+	conditions    []condition
+	returning     []string
+	returningExpr []Expr
+	ctes          []cte
 }
 
 type setClause struct {
@@ -149,6 +150,12 @@ func (b *UpdateBuilder) WhereILike(col string, val any) *UpdateBuilder {
 	return b
 }
 
+// WhereColumn adds a column-to-column comparison condition (e.g., "a.id = b.id").
+func (b *UpdateBuilder) WhereColumn(col1, op, col2 string) *UpdateBuilder {
+	b.conditions = append(b.conditions, condition{sql: col1 + " " + op + " " + col2})
+	return b
+}
+
 // WhereExists adds a "EXISTS (subquery)" condition.
 func (b *UpdateBuilder) WhereExists(sub *SelectBuilder) *UpdateBuilder {
 	sql, args := buildSelectPostgres(sub)
@@ -208,8 +215,13 @@ func (b *UpdateBuilder) Clone() *UpdateBuilder {
 	c := *b
 	c.setClauses = slices.Clone(b.setClauses)
 	c.fromTables = slices.Clone(b.fromTables)
-	c.conditions = slices.Clone(b.conditions)
+	c.conditions = make([]condition, len(b.conditions))
+	copy(c.conditions, b.conditions)
+	for i, cond := range c.conditions {
+		c.conditions[i].args = slices.Clone(cond.args)
+	}
 	c.returning = slices.Clone(b.returning)
+	c.returningExpr = slices.Clone(b.returningExpr)
 	c.ctes = slices.Clone(b.ctes)
 	return &c
 }
@@ -231,6 +243,12 @@ func (b *UpdateBuilder) Decrement(col string, n any) *UpdateBuilder {
 // Returning adds a RETURNING clause.
 func (b *UpdateBuilder) Returning(cols ...string) *UpdateBuilder {
 	b.returning = cols
+	return b
+}
+
+// ReturningExpr adds expression columns to the RETURNING clause.
+func (b *UpdateBuilder) ReturningExpr(exprs ...Expr) *UpdateBuilder {
+	b.returningExpr = append(b.returningExpr, exprs...)
 	return b
 }
 
@@ -290,7 +308,7 @@ func (b *UpdateBuilder) Build() (string, []any) {
 	whereArgs := writeWhereClause(&sb, b.conditions, ac)
 	args = append(args, whereArgs...)
 
-	writeReturning(&sb, b.returning)
+	writeReturningWithExpr(&sb, b.returning, b.returningExpr, ac, &args)
 
 	return convertPlaceholders(sb.String(), b.dialect), args
 }

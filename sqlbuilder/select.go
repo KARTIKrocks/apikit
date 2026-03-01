@@ -12,6 +12,7 @@ import (
 type SelectBuilder struct {
 	dialect      Dialect
 	distinct     bool
+	distinctOn   []string
 	columns      []string
 	columnExpr   []Expr
 	from         string
@@ -20,8 +21,10 @@ type SelectBuilder struct {
 	joins        []joinClause
 	conditions   []condition
 	groupBy      []string
+	groupByExpr  []Expr
 	having       []condition
 	orderBy      []string
+	orderByExpr  []Expr
 	limit        int
 	hasLimit     bool
 	offsetVal    int64
@@ -34,10 +37,12 @@ type SelectBuilder struct {
 }
 
 type joinClause struct {
-	kind  string // "JOIN", "LEFT JOIN", etc.
-	table string
-	on    string
-	args  []any
+	kind     string // "JOIN", "LEFT JOIN", etc.
+	table    string
+	on       string
+	args     []any
+	subquery *SelectBuilder
+	subAlias string
 }
 
 // Select creates a new SelectBuilder with the given columns.
@@ -63,6 +68,12 @@ func (s *SelectBuilder) SetDialect(d Dialect) *SelectBuilder {
 // Distinct adds DISTINCT to the SELECT.
 func (s *SelectBuilder) Distinct() *SelectBuilder {
 	s.distinct = true
+	return s
+}
+
+// DistinctOn adds DISTINCT ON (cols) to the SELECT (PostgreSQL).
+func (s *SelectBuilder) DistinctOn(cols ...string) *SelectBuilder {
+	s.distinctOn = append(s.distinctOn, cols...)
 	return s
 }
 
@@ -131,6 +142,30 @@ func (s *SelectBuilder) FullJoin(table, on string, args ...any) *SelectBuilder {
 // CrossJoin adds a CROSS JOIN.
 func (s *SelectBuilder) CrossJoin(table string) *SelectBuilder {
 	s.joins = append(s.joins, joinClause{kind: "CROSS JOIN", table: table})
+	return s
+}
+
+// JoinSubquery adds an INNER JOIN with a subquery.
+func (s *SelectBuilder) JoinSubquery(sub *SelectBuilder, alias, on string, args ...any) *SelectBuilder {
+	s.joins = append(s.joins, joinClause{kind: "JOIN", subquery: sub, subAlias: alias, on: on, args: args})
+	return s
+}
+
+// LeftJoinSubquery adds a LEFT JOIN with a subquery.
+func (s *SelectBuilder) LeftJoinSubquery(sub *SelectBuilder, alias, on string, args ...any) *SelectBuilder {
+	s.joins = append(s.joins, joinClause{kind: "LEFT JOIN", subquery: sub, subAlias: alias, on: on, args: args})
+	return s
+}
+
+// RightJoinSubquery adds a RIGHT JOIN with a subquery.
+func (s *SelectBuilder) RightJoinSubquery(sub *SelectBuilder, alias, on string, args ...any) *SelectBuilder {
+	s.joins = append(s.joins, joinClause{kind: "RIGHT JOIN", subquery: sub, subAlias: alias, on: on, args: args})
+	return s
+}
+
+// FullJoinSubquery adds a FULL JOIN with a subquery.
+func (s *SelectBuilder) FullJoinSubquery(sub *SelectBuilder, alias, on string, args ...any) *SelectBuilder {
+	s.joins = append(s.joins, joinClause{kind: "FULL JOIN", subquery: sub, subAlias: alias, on: on, args: args})
 	return s
 }
 
@@ -211,6 +246,12 @@ func (s *SelectBuilder) WhereNotInSubquery(col string, sub *SelectBuilder) *Sele
 	return s
 }
 
+// WhereColumn adds a column-to-column comparison condition (e.g., "a.id = b.id").
+func (s *SelectBuilder) WhereColumn(col1, op, col2 string) *SelectBuilder {
+	s.conditions = append(s.conditions, condition{sql: col1 + " " + op + " " + col2})
+	return s
+}
+
 // WhereOr adds a group of OR conditions wrapped in parentheses.
 //
 //	.WhereOr(
@@ -277,9 +318,27 @@ func (s *SelectBuilder) GroupBy(cols ...string) *SelectBuilder {
 	return s
 }
 
+// GroupByExpr adds a GROUP BY expression.
+func (s *SelectBuilder) GroupByExpr(expr Expr) *SelectBuilder {
+	s.groupByExpr = append(s.groupByExpr, expr)
+	return s
+}
+
 // Having adds a HAVING condition.
 func (s *SelectBuilder) Having(sql string, args ...any) *SelectBuilder {
 	s.having = append(s.having, condition{sql: sql, args: args})
+	return s
+}
+
+// HavingIn adds a "col IN (...)" HAVING condition.
+func (s *SelectBuilder) HavingIn(col string, vals ...any) *SelectBuilder {
+	s.having = append(s.having, buildWhereIn(col, vals))
+	return s
+}
+
+// HavingBetween adds a "col BETWEEN low AND high" HAVING condition.
+func (s *SelectBuilder) HavingBetween(col string, low, high any) *SelectBuilder {
+	s.having = append(s.having, buildWhereBetween(col, low, high))
 	return s
 }
 
@@ -306,8 +365,15 @@ func (s *SelectBuilder) OrderByDesc(cols ...string) *SelectBuilder {
 }
 
 // OrderByExpr adds an ORDER BY clause from an expression.
+// Unlike OrderBy, this preserves the expression's Args so parameterized
+// expressions (e.g., RawExpr) are correctly included in the final query.
 func (s *SelectBuilder) OrderByExpr(expr Expr) *SelectBuilder {
-	s.orderBy = append(s.orderBy, expr.SQL)
+	if len(expr.Args) == 0 {
+		// No args — store as plain string for zero overhead.
+		s.orderBy = append(s.orderBy, expr.SQL)
+	} else {
+		s.orderByExpr = append(s.orderByExpr, expr)
+	}
 	return s
 }
 
@@ -338,14 +404,18 @@ func (s *SelectBuilder) ForShare() *SelectBuilder {
 }
 
 // SkipLocked adds SKIP LOCKED to the lock clause.
+// Mutually exclusive with NoWait — setting one clears the other.
 func (s *SelectBuilder) SkipLocked() *SelectBuilder {
 	s.skipLocked = true
+	s.noWait = false
 	return s
 }
 
 // NoWait adds NOWAIT to the lock clause.
+// Mutually exclusive with SkipLocked — setting one clears the other.
 func (s *SelectBuilder) NoWait() *SelectBuilder {
 	s.noWait = true
+	s.skipLocked = false
 	return s
 }
 
@@ -446,11 +516,29 @@ func (s *SelectBuilder) Clone() *SelectBuilder {
 	c := *s
 	c.columns = slices.Clone(s.columns)
 	c.columnExpr = slices.Clone(s.columnExpr)
-	c.joins = slices.Clone(s.joins)
-	c.conditions = slices.Clone(s.conditions)
+	c.distinctOn = slices.Clone(s.distinctOn)
+	c.joins = make([]joinClause, len(s.joins))
+	copy(c.joins, s.joins)
+	for i, j := range c.joins {
+		c.joins[i].args = slices.Clone(j.args)
+		if j.subquery != nil {
+			c.joins[i].subquery = j.subquery.Clone()
+		}
+	}
+	c.conditions = make([]condition, len(s.conditions))
+	copy(c.conditions, s.conditions)
+	for i, cond := range c.conditions {
+		c.conditions[i].args = slices.Clone(cond.args)
+	}
 	c.groupBy = slices.Clone(s.groupBy)
-	c.having = slices.Clone(s.having)
+	c.groupByExpr = slices.Clone(s.groupByExpr)
+	c.having = make([]condition, len(s.having))
+	copy(c.having, s.having)
+	for i, h := range c.having {
+		c.having[i].args = slices.Clone(h.args)
+	}
 	c.orderBy = slices.Clone(s.orderBy)
+	c.orderByExpr = slices.Clone(s.orderByExpr)
 	c.setOps = slices.Clone(s.setOps)
 	c.ctes = slices.Clone(s.ctes)
 	if s.fromSubquery != nil {
@@ -508,7 +596,11 @@ func (s *SelectBuilder) Build() (string, []any) {
 
 	// SELECT
 	sb.WriteString("SELECT ")
-	if s.distinct {
+	if len(s.distinctOn) > 0 {
+		sb.WriteString("DISTINCT ON (")
+		writeJoined(&sb, s.distinctOn, ", ")
+		sb.WriteString(") ")
+	} else if s.distinct {
 		sb.WriteString("DISTINCT ")
 	}
 
@@ -557,7 +649,18 @@ func (s *SelectBuilder) Build() (string, []any) {
 		sb.WriteByte(' ')
 		sb.WriteString(j.kind)
 		sb.WriteByte(' ')
-		sb.WriteString(j.table)
+		if j.subquery != nil {
+			subSQL, subArgs := buildSelectPostgres(j.subquery)
+			sb.WriteByte('(')
+			rebased := rebasePlaceholders(subSQL, ac.offset())
+			sb.WriteString(rebased)
+			sb.WriteString(") ")
+			sb.WriteString(j.subAlias)
+			args = append(args, subArgs...)
+			ac.n += len(subArgs)
+		} else {
+			sb.WriteString(j.table)
+		}
 		if j.on != "" {
 			sb.WriteString(" ON ")
 			rebased := rebasePlaceholders(j.on, ac.offset())
@@ -572,9 +675,18 @@ func (s *SelectBuilder) Build() (string, []any) {
 	args = append(args, whereArgs...)
 
 	// GROUP BY
-	if len(s.groupBy) > 0 {
+	if len(s.groupBy) > 0 || len(s.groupByExpr) > 0 {
 		sb.WriteString(" GROUP BY ")
 		writeJoined(&sb, s.groupBy, ", ")
+		for i, e := range s.groupByExpr {
+			if len(s.groupBy) > 0 || i > 0 {
+				sb.WriteString(", ")
+			}
+			rebased := rebasePlaceholders(e.SQL, ac.offset())
+			sb.WriteString(rebased)
+			args = append(args, e.Args...)
+			ac.n += len(e.Args)
+		}
 	}
 
 	// HAVING
@@ -603,9 +715,18 @@ func (s *SelectBuilder) Build() (string, []any) {
 	}
 
 	// ORDER BY
-	if len(s.orderBy) > 0 {
+	if len(s.orderBy) > 0 || len(s.orderByExpr) > 0 {
 		sb.WriteString(" ORDER BY ")
 		writeJoined(&sb, s.orderBy, ", ")
+		for i, e := range s.orderByExpr {
+			if len(s.orderBy) > 0 || i > 0 {
+				sb.WriteString(", ")
+			}
+			rebased := rebasePlaceholders(e.SQL, ac.offset())
+			sb.WriteString(rebased)
+			args = append(args, e.Args...)
+			ac.n += len(e.Args)
+		}
 	}
 
 	// LIMIT

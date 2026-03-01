@@ -74,3 +74,59 @@ func TestMultipleAggregatesInSelect(t *testing.T) {
 	).From("products").Build()
 	expectSQL(t, "SELECT MIN(price) AS min_price, MAX(price) AS max_price, AVG(price) AS avg_price FROM products", sql)
 }
+
+func TestCoalesce(t *testing.T) {
+	e := Coalesce("name", "'unknown'")
+	if e.SQL != "COALESCE(name, 'unknown')" {
+		t.Errorf("expected COALESCE(name, 'unknown'), got %s", e.SQL)
+	}
+}
+
+func TestCoalesceExpr(t *testing.T) {
+	e := CoalesceExpr(
+		RawExpr("$1", "first"),
+		RawExpr("$1", "second"),
+	)
+	if e.SQL != "COALESCE($1, $2)" {
+		t.Errorf("expected COALESCE($1, $2), got %s", e.SQL)
+	}
+	expectArgs(t, []any{"first", "second"}, e.Args)
+}
+
+func TestCoalesceExprInSelect(t *testing.T) {
+	sql, args := SelectExpr(
+		CoalesceExpr(RawExpr("$1", "val"), Raw("0")).As("result"),
+	).From("t").Build()
+	expectSQL(t, "SELECT COALESCE($1, 0) AS result FROM t", sql)
+	expectArgs(t, []any{"val"}, args)
+}
+
+func TestNullIf(t *testing.T) {
+	e := NullIf("price", "0")
+	if e.SQL != "NULLIF(price, 0)" {
+		t.Errorf("expected NULLIF(price, 0), got %s", e.SQL)
+	}
+}
+
+func TestNullIfExpr(t *testing.T) {
+	e := NullIfExpr(RawExpr("$1", "a"), RawExpr("$1", "b"))
+	if e.SQL != "NULLIF($1, $2)" {
+		t.Errorf("expected NULLIF($1, $2), got %s", e.SQL)
+	}
+	expectArgs(t, []any{"a", "b"}, e.Args)
+}
+
+func TestCast(t *testing.T) {
+	e := Cast("price", "INTEGER")
+	if e.SQL != "CAST(price AS INTEGER)" {
+		t.Errorf("expected CAST(price AS INTEGER), got %s", e.SQL)
+	}
+}
+
+func TestCastExpr(t *testing.T) {
+	e := CastExpr(RawExpr("$1", "123"), "INTEGER")
+	if e.SQL != "CAST($1 AS INTEGER)" {
+		t.Errorf("expected CAST($1 AS INTEGER), got %s", e.SQL)
+	}
+	expectArgs(t, []any{"123"}, e.Args)
+}

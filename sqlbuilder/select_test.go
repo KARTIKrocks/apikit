@@ -497,6 +497,162 @@ func TestSelectUnionWithArgs(t *testing.T) {
 	expectArgs(t, []any{"active", 3}, args)
 }
 
+func TestSelectGroupByExpr(t *testing.T) {
+	sql, args := SelectExpr(
+		Raw("DATE_TRUNC('month', created_at)"),
+		Count("*").As("cnt"),
+	).From("orders").
+		GroupByExpr(Raw("DATE_TRUNC('month', created_at)")).
+		Build()
+	expectSQL(t, "SELECT DATE_TRUNC('month', created_at), COUNT(*) AS cnt FROM orders GROUP BY DATE_TRUNC('month', created_at)", sql)
+	expectArgs(t, nil, args)
+}
+
+func TestSelectGroupByExprWithGroupBy(t *testing.T) {
+	sql, _ := Select("dept").
+		From("employees").
+		GroupBy("dept").
+		GroupByExpr(Raw("DATE_TRUNC('year', hire_date)")).
+		Build()
+	expectSQL(t, "SELECT dept FROM employees GROUP BY dept, DATE_TRUNC('year', hire_date)", sql)
+}
+
+func TestSelectHavingIn(t *testing.T) {
+	sql, args := Select("status", "COUNT(*)").
+		From("orders").
+		GroupBy("status").
+		HavingIn("status", "active", "pending").
+		Build()
+	expectSQL(t, "SELECT status, COUNT(*) FROM orders GROUP BY status HAVING status IN ($1, $2)", sql)
+	expectArgs(t, []any{"active", "pending"}, args)
+}
+
+func TestSelectHavingBetween(t *testing.T) {
+	sql, args := Select("dept", "AVG(salary)").
+		From("employees").
+		GroupBy("dept").
+		HavingBetween("AVG(salary)", 50000, 100000).
+		Build()
+	expectSQL(t, "SELECT dept, AVG(salary) FROM employees GROUP BY dept HAVING AVG(salary) BETWEEN $1 AND $2", sql)
+	expectArgs(t, []any{50000, 100000}, args)
+}
+
+func TestSelectHavingInWithOtherHaving(t *testing.T) {
+	sql, args := Select("status", "COUNT(*)").
+		From("orders").
+		GroupBy("status").
+		Having("COUNT(*) > $1", 5).
+		HavingIn("status", "active", "pending").
+		Build()
+	expectSQL(t, "SELECT status, COUNT(*) FROM orders GROUP BY status HAVING COUNT(*) > $1 AND status IN ($2, $3)", sql)
+	expectArgs(t, []any{5, "active", "pending"}, args)
+}
+
+func TestSelectDistinctOn(t *testing.T) {
+	sql, _ := Select("user_id", "created_at", "message").
+		From("notifications").
+		DistinctOn("user_id").
+		OrderBy("user_id", "created_at DESC").
+		Build()
+	expectSQL(t, "SELECT DISTINCT ON (user_id) user_id, created_at, message FROM notifications ORDER BY user_id, created_at DESC", sql)
+}
+
+func TestSelectDistinctOnMultiple(t *testing.T) {
+	sql, _ := Select("dept", "role", "name").
+		From("employees").
+		DistinctOn("dept", "role").
+		Build()
+	expectSQL(t, "SELECT DISTINCT ON (dept, role) dept, role, name FROM employees", sql)
+}
+
+func TestSelectWhereColumn(t *testing.T) {
+	sql, args := Select("u.id", "u.name").
+		From("users u").
+		Join("profiles p", "p.user_id = u.id").
+		WhereColumn("u.created_at", ">", "p.updated_at").
+		Build()
+	expectSQL(t, "SELECT u.id, u.name FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.created_at > p.updated_at", sql)
+	expectArgs(t, nil, args)
+}
+
+func TestSelectJoinSubquery(t *testing.T) {
+	sub := Select("user_id", "SUM(total) AS total").From("orders").GroupBy("user_id")
+	sql, _ := Select("u.name", "o.total").
+		From("users u").
+		JoinSubquery(sub, "o", "o.user_id = u.id").
+		Build()
+	expectSQL(t, "SELECT u.name, o.total FROM users u JOIN (SELECT user_id, SUM(total) AS total FROM orders GROUP BY user_id) o ON o.user_id = u.id", sql)
+}
+
+func TestSelectLeftJoinSubquery(t *testing.T) {
+	sub := Select("user_id", "COUNT(*) AS cnt").From("orders").GroupBy("user_id")
+	sql, _ := Select("u.name", "o.cnt").
+		From("users u").
+		LeftJoinSubquery(sub, "o", "o.user_id = u.id").
+		Build()
+	expectSQL(t, "SELECT u.name, o.cnt FROM users u LEFT JOIN (SELECT user_id, COUNT(*) AS cnt FROM orders GROUP BY user_id) o ON o.user_id = u.id", sql)
+}
+
+func TestSelectJoinSubqueryWithArgs(t *testing.T) {
+	sub := Select("user_id", "SUM(total) AS total").From("orders").Where("status = $1", "complete").GroupBy("user_id")
+	sql, args := Select("u.name", "o.total").
+		From("users u").
+		JoinSubquery(sub, "o", "o.user_id = u.id").
+		Where("u.active = $1", true).
+		Build()
+	expectSQL(t, "SELECT u.name, o.total FROM users u JOIN (SELECT user_id, SUM(total) AS total FROM orders WHERE status = $1 GROUP BY user_id) o ON o.user_id = u.id WHERE u.active = $2", sql)
+	expectArgs(t, []any{"complete", true}, args)
+}
+
+func TestSelectRightJoinSubquery(t *testing.T) {
+	sub := Select("id").From("departments")
+	sql, _ := Select("e.name", "d.id").
+		From("employees e").
+		RightJoinSubquery(sub, "d", "e.dept_id = d.id").
+		Build()
+	expectSQL(t, "SELECT e.name, d.id FROM employees e RIGHT JOIN (SELECT id FROM departments) d ON e.dept_id = d.id", sql)
+}
+
+func TestSelectFullJoinSubquery(t *testing.T) {
+	sub := Select("id").From("departments")
+	sql, _ := Select("e.name", "d.id").
+		From("employees e").
+		FullJoinSubquery(sub, "d", "e.dept_id = d.id").
+		Build()
+	expectSQL(t, "SELECT e.name, d.id FROM employees e FULL JOIN (SELECT id FROM departments) d ON e.dept_id = d.id", sql)
+}
+
+func TestSelectWhereColumnWithOtherConditions(t *testing.T) {
+	sql, args := Select("id").From("orders o").
+		Where("o.status = $1", "active").
+		WhereColumn("o.created_at", "<=", "o.deadline").
+		Build()
+	expectSQL(t, "SELECT id FROM orders o WHERE o.status = $1 AND o.created_at <= o.deadline", sql)
+	expectArgs(t, []any{"active"}, args)
+}
+
+func TestSelectFromSubqueryRebasesWithCTE(t *testing.T) {
+	cteQ := Query{SQL: "SELECT id FROM source WHERE x = $1", Args: []any{"a"}}
+	sub := Select("id").From("t").Where("y = $1", "b")
+
+	sql, args := Select("id").
+		With("c", cteQ).
+		FromSubquery(sub, "s").
+		Build()
+	expectSQL(t, "WITH c AS (SELECT id FROM source WHERE x = $1) SELECT id FROM (SELECT id FROM t WHERE y = $2) s", sql)
+	expectArgs(t, []any{"a", "b"}, args)
+}
+
+func TestSelectFromSubqueryRebasesAfterColumnExpr(t *testing.T) {
+	sub := Select("id").From("t").Where("x = $1", "val")
+
+	sql, args := SelectExpr(RawExpr("COALESCE($1, 'default')", "test")).
+		FromSubquery(sub, "s").
+		Build()
+	expectSQL(t, "SELECT COALESCE($1, 'default') FROM (SELECT id FROM t WHERE x = $2) s", sql)
+	expectArgs(t, []any{"test", "val"}, args)
+}
+
 // test helpers
 
 func expectSQL(t *testing.T, expected, got string) {
