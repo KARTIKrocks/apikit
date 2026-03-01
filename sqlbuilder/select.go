@@ -24,6 +24,7 @@ type SelectBuilder struct {
 	groupByExpr  []Expr
 	having       []condition
 	orderBy      []string
+	orderByExpr  []Expr
 	limit        int
 	hasLimit     bool
 	offsetVal    int64
@@ -364,8 +365,15 @@ func (s *SelectBuilder) OrderByDesc(cols ...string) *SelectBuilder {
 }
 
 // OrderByExpr adds an ORDER BY clause from an expression.
+// Unlike OrderBy, this preserves the expression's Args so parameterized
+// expressions (e.g., RawExpr) are correctly included in the final query.
 func (s *SelectBuilder) OrderByExpr(expr Expr) *SelectBuilder {
-	s.orderBy = append(s.orderBy, expr.SQL)
+	if len(expr.Args) == 0 {
+		// No args — store as plain string for zero overhead.
+		s.orderBy = append(s.orderBy, expr.SQL)
+	} else {
+		s.orderByExpr = append(s.orderByExpr, expr)
+	}
 	return s
 }
 
@@ -396,14 +404,18 @@ func (s *SelectBuilder) ForShare() *SelectBuilder {
 }
 
 // SkipLocked adds SKIP LOCKED to the lock clause.
+// Mutually exclusive with NoWait — setting one clears the other.
 func (s *SelectBuilder) SkipLocked() *SelectBuilder {
 	s.skipLocked = true
+	s.noWait = false
 	return s
 }
 
 // NoWait adds NOWAIT to the lock clause.
+// Mutually exclusive with SkipLocked — setting one clears the other.
 func (s *SelectBuilder) NoWait() *SelectBuilder {
 	s.noWait = true
+	s.skipLocked = false
 	return s
 }
 
@@ -508,15 +520,25 @@ func (s *SelectBuilder) Clone() *SelectBuilder {
 	c.joins = make([]joinClause, len(s.joins))
 	copy(c.joins, s.joins)
 	for i, j := range c.joins {
+		c.joins[i].args = slices.Clone(j.args)
 		if j.subquery != nil {
 			c.joins[i].subquery = j.subquery.Clone()
 		}
 	}
-	c.conditions = slices.Clone(s.conditions)
+	c.conditions = make([]condition, len(s.conditions))
+	copy(c.conditions, s.conditions)
+	for i, cond := range c.conditions {
+		c.conditions[i].args = slices.Clone(cond.args)
+	}
 	c.groupBy = slices.Clone(s.groupBy)
 	c.groupByExpr = slices.Clone(s.groupByExpr)
-	c.having = slices.Clone(s.having)
+	c.having = make([]condition, len(s.having))
+	copy(c.having, s.having)
+	for i, h := range c.having {
+		c.having[i].args = slices.Clone(h.args)
+	}
 	c.orderBy = slices.Clone(s.orderBy)
+	c.orderByExpr = slices.Clone(s.orderByExpr)
 	c.setOps = slices.Clone(s.setOps)
 	c.ctes = slices.Clone(s.ctes)
 	if s.fromSubquery != nil {
@@ -693,9 +715,18 @@ func (s *SelectBuilder) Build() (string, []any) {
 	}
 
 	// ORDER BY
-	if len(s.orderBy) > 0 {
+	if len(s.orderBy) > 0 || len(s.orderByExpr) > 0 {
 		sb.WriteString(" ORDER BY ")
 		writeJoined(&sb, s.orderBy, ", ")
+		for i, e := range s.orderByExpr {
+			if len(s.orderBy) > 0 || i > 0 {
+				sb.WriteString(", ")
+			}
+			rebased := rebasePlaceholders(e.SQL, ac.offset())
+			sb.WriteString(rebased)
+			args = append(args, e.Args...)
+			ac.n += len(e.Args)
+		}
 	}
 
 	// LIMIT

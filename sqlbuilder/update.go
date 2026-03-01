@@ -215,7 +215,11 @@ func (b *UpdateBuilder) Clone() *UpdateBuilder {
 	c := *b
 	c.setClauses = slices.Clone(b.setClauses)
 	c.fromTables = slices.Clone(b.fromTables)
-	c.conditions = slices.Clone(b.conditions)
+	c.conditions = make([]condition, len(b.conditions))
+	copy(c.conditions, b.conditions)
+	for i, cond := range c.conditions {
+		c.conditions[i].args = slices.Clone(cond.args)
+	}
 	c.returning = slices.Clone(b.returning)
 	c.returningExpr = slices.Clone(b.returningExpr)
 	c.ctes = slices.Clone(b.ctes)

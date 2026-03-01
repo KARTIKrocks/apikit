@@ -183,7 +183,11 @@ func (b *DeleteBuilder) When(cond bool, fn func(*DeleteBuilder)) *DeleteBuilder 
 func (b *DeleteBuilder) Clone() *DeleteBuilder {
 	c := *b
 	c.using = slices.Clone(b.using)
-	c.conditions = slices.Clone(b.conditions)
+	c.conditions = make([]condition, len(b.conditions))
+	copy(c.conditions, b.conditions)
+	for i, cond := range c.conditions {
+		c.conditions[i].args = slices.Clone(cond.args)
+	}
 	c.returning = slices.Clone(b.returning)
 	c.returningExpr = slices.Clone(b.returningExpr)
 	c.ctes = slices.Clone(b.ctes)

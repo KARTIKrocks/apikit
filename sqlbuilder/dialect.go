@@ -49,12 +49,16 @@ func convertPlaceholders(sql string, d Dialect) string {
 // regardless of the builder's dialect. This is used internally when embedding
 // subqueries so that rebasePlaceholders can adjust $N numbering correctly.
 // The outermost Build() handles the final dialect conversion.
+//
+// This function is safe for concurrent use: it does not mutate sub.
 func buildSelectPostgres(sub *SelectBuilder) (string, []any) {
-	saved := sub.dialect
-	sub.dialect = Postgres
-	sql, args := sub.Build()
-	sub.dialect = saved
-	return sql, args
+	if sub.dialect == Postgres {
+		return sub.Build()
+	}
+	// Build a shallow copy with Postgres dialect to avoid mutating the original.
+	cp := *sub
+	cp.dialect = Postgres
+	return cp.Build()
 }
 
 // SelectWith creates a new SelectBuilder with the given dialect and columns.

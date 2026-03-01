@@ -44,7 +44,7 @@ func rebasePlaceholders(sql string, offset int) string {
 			end++
 		}
 		// If the rest has no more $, use fast path.
-		if !strings.ContainsRune(sql[end:], '$') {
+		if strings.IndexByte(sql[end:], '$') < 0 {
 			n, _ := strconv.Atoi(sql[idx+1 : end])
 			return sql[:idx] + "$" + strconv.Itoa(n+offset) + sql[end:]
 		}

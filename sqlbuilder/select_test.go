@@ -631,6 +631,28 @@ func TestSelectWhereColumnWithOtherConditions(t *testing.T) {
 	expectArgs(t, []any{"active"}, args)
 }
 
+func TestSelectFromSubqueryRebasesWithCTE(t *testing.T) {
+	cteQ := Query{SQL: "SELECT id FROM source WHERE x = $1", Args: []any{"a"}}
+	sub := Select("id").From("t").Where("y = $1", "b")
+
+	sql, args := Select("id").
+		With("c", cteQ).
+		FromSubquery(sub, "s").
+		Build()
+	expectSQL(t, "WITH c AS (SELECT id FROM source WHERE x = $1) SELECT id FROM (SELECT id FROM t WHERE y = $2) s", sql)
+	expectArgs(t, []any{"a", "b"}, args)
+}
+
+func TestSelectFromSubqueryRebasesAfterColumnExpr(t *testing.T) {
+	sub := Select("id").From("t").Where("x = $1", "val")
+
+	sql, args := SelectExpr(RawExpr("COALESCE($1, 'default')", "test")).
+		FromSubquery(sub, "s").
+		Build()
+	expectSQL(t, "SELECT COALESCE($1, 'default') FROM (SELECT id FROM t WHERE x = $2) s", sql)
+	expectArgs(t, []any{"test", "val"}, args)
+}
+
 // test helpers
 
 func expectSQL(t *testing.T, expected, got string) {

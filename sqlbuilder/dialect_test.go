@@ -30,6 +30,19 @@ func TestConvertPlaceholders(t *testing.T) {
 	}
 }
 
+func TestRebasePlaceholdersSkipsDollarZero(t *testing.T) {
+	// $0 is not a valid PostgreSQL placeholder — it should be left untouched.
+	slowResult := rebasePlaceholders("$0 AND $1", 5)
+	if slowResult != "$0 AND $6" {
+		t.Errorf("multi-placeholder: got %q, want %q", slowResult, "$0 AND $6")
+	}
+
+	fastResult := rebasePlaceholders("x = $0", 5)
+	if fastResult != "x = $0" {
+		t.Errorf("single-placeholder: got %q, want %q", fastResult, "x = $0")
+	}
+}
+
 func TestSelectMySQL(t *testing.T) {
 	sql, args := Select("id", "name").
 		From("users").
