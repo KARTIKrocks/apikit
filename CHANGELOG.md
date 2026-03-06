@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-03-06
+
+### Added
+
+- **config** — Embedded (anonymous) struct support: fields resolve as if declared directly on the parent, with no extra prefix added
+- **config** — `envprefix` struct tag for named struct fields to override the auto-generated nesting prefix (e.g., `envprefix:"DB_"` reads `DB_URL` instead of `DATABASE_URL`)
+- **config** — `envprefix:"-"` to skip the nesting prefix entirely, so inner `env` tags are used as-is
+
 ## [0.10.0] - 2026-02-28
 
 ### Added

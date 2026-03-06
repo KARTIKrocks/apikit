@@ -795,6 +795,178 @@ func TestLoad_EnvFileDoesNotPolluteOsEnviron(t *testing.T) {
 
 // --- JSON + nested struct + prefix ---
 
+// --- Embedded (anonymous) structs ---
+
+func TestLoad_EmbeddedStructNoPrefix(t *testing.T) {
+	// Embedded structs should be transparent — their fields resolve
+	// as if declared directly on the parent (no BASECONFIG_ prefix).
+	type Base struct {
+		Env  string `env:"ENV" default:"development"`
+		Port int    `env:"PORT" default:"8080"`
+	}
+
+	type cfg struct {
+		Base
+		Host string `env:"HOST" default:"localhost"`
+	}
+
+	setEnv(t, "ENV", "production")
+	setEnv(t, "PORT", "3000")
+
+	var c cfg
+	if err := Load(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Env != "production" {
+		t.Errorf("Env = %q, want %q", c.Env, "production")
+	}
+	if c.Port != 3000 {
+		t.Errorf("Port = %d, want %d", c.Port, 3000)
+	}
+	if c.Host != "localhost" {
+		t.Errorf("Host = %q, want %q", c.Host, "localhost")
+	}
+}
+
+func TestLoad_EmbeddedStructWithUserPrefix(t *testing.T) {
+	type Base struct {
+		Env string `env:"ENV"`
+	}
+
+	type cfg struct {
+		Base
+	}
+
+	setEnv(t, "APP_ENV", "staging")
+
+	var c cfg
+	if err := Load(&c, WithPrefix("APP")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Env != "staging" {
+		t.Errorf("Env = %q, want %q", c.Env, "staging")
+	}
+}
+
+func TestLoad_EmbeddedStructWithNamedSibling(t *testing.T) {
+	// Embedded struct fields coexist with named nested struct fields.
+	type Base struct {
+		Env string `env:"ENV" default:"dev"`
+	}
+
+	type cfg struct {
+		Base
+		DB struct {
+			Host string `env:"HOST" default:"localhost"`
+		}
+	}
+
+	setEnv(t, "ENV", "production")
+	setEnv(t, "DB_HOST", "dbserver")
+
+	var c cfg
+	if err := Load(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Env != "production" {
+		t.Errorf("Env = %q, want %q", c.Env, "production")
+	}
+	if c.DB.Host != "dbserver" {
+		t.Errorf("DB.Host = %q, want %q", c.DB.Host, "dbserver")
+	}
+}
+
+// --- envprefix tag ---
+
+func TestLoad_EnvPrefixOverride(t *testing.T) {
+	// envprefix tag overrides the auto-generated prefix.
+	type JWTConfig struct {
+		Secret string `env:"SECRET"`
+		Expiry string `env:"EXPIRY" default:"15m"`
+	}
+
+	type cfg struct {
+		JWT JWTConfig `envprefix:"JWT_"`
+	}
+
+	setEnv(t, "JWT_SECRET", "mysecret")
+
+	var c cfg
+	if err := Load(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.JWT.Secret != "mysecret" {
+		t.Errorf("JWT.Secret = %q, want %q", c.JWT.Secret, "mysecret")
+	}
+	if c.JWT.Expiry != "15m" {
+		t.Errorf("JWT.Expiry = %q, want %q", c.JWT.Expiry, "15m")
+	}
+}
+
+func TestLoad_EnvPrefixDash(t *testing.T) {
+	// envprefix:"-" skips the auto-prefix entirely.
+	// Inner env tags are used as-is.
+	type JWTConfig struct {
+		Secret string `env:"JWT_SECRET"`
+	}
+
+	type cfg struct {
+		JWT JWTConfig `envprefix:"-"`
+	}
+
+	setEnv(t, "JWT_SECRET", "noscopeprefix")
+
+	var c cfg
+	if err := Load(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.JWT.Secret != "noscopeprefix" {
+		t.Errorf("JWT.Secret = %q, want %q", c.JWT.Secret, "noscopeprefix")
+	}
+}
+
+func TestLoad_EnvPrefixCustom(t *testing.T) {
+	// Custom prefix that differs from the field name.
+	type DBConfig struct {
+		URL string `env:"URL"`
+	}
+
+	type cfg struct {
+		Database DBConfig `envprefix:"DB_"`
+	}
+
+	setEnv(t, "DB_URL", "postgres://localhost")
+
+	var c cfg
+	if err := Load(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Database.URL != "postgres://localhost" {
+		t.Errorf("Database.URL = %q, want %q", c.Database.URL, "postgres://localhost")
+	}
+}
+
+func TestLoad_EnvPrefixWithUserPrefix(t *testing.T) {
+	// envprefix works together with WithPrefix.
+	type JWTConfig struct {
+		Secret string `env:"SECRET"`
+	}
+
+	type cfg struct {
+		JWT JWTConfig `envprefix:"JWT_"`
+	}
+
+	setEnv(t, "APP_JWT_SECRET", "combined")
+
+	var c cfg
+	if err := Load(&c, WithPrefix("APP")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.JWT.Secret != "combined" {
+		t.Errorf("JWT.Secret = %q, want %q", c.JWT.Secret, "combined")
+	}
+}
+
 func TestLoad_JSONNestedStructWithPrefix(t *testing.T) {
 	jsonContent := `{
 		"db": {

@@ -613,6 +613,27 @@ type Config struct {
 // Reads DB_HOST, DB_PORT (or APP_DB_HOST, APP_DB_PORT with WithPrefix("APP"))
 ```
 
+Embedded structs are transparent — no extra prefix:
+
+```go
+type Base struct {
+    Env string `env:"ENV" default:"development"`
+}
+type Config struct {
+    Base                                          // reads ENV, not BASE_ENV
+    Host string `env:"HOST" default:"localhost"`
+}
+```
+
+Use `envprefix` to override the auto-generated nesting prefix:
+
+```go
+type Config struct {
+    Database DBConfig `envprefix:"DB_"` // reads DB_URL instead of DATABASE_URL
+    JWT      JWTConfig `envprefix:"-"`  // no prefix — inner env tags used as-is
+}
+```
+
 ### sqlbuilder
 
 Fluent SQL query builder for PostgreSQL, MySQL, and SQLite. Produces `(string, []any)` pairs — no `database/sql` dependency.
