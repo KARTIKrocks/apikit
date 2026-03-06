@@ -61,6 +61,30 @@
 //	// With prefix "APP": reads APP_DB_HOST, APP_DB_PORT
 //	config.Load(&cfg, config.WithPrefix("APP"))
 //
+// # Embedded Structs
+//
+// Embedded (anonymous) structs are transparent — their fields resolve as if
+// declared directly on the parent, with no extra prefix added:
+//
+//	type Base struct {
+//	    Env string `env:"ENV" default:"development"`
+//	}
+//	type Config struct {
+//	    Base                                          // reads ENV, not BASE_ENV
+//	    Host string `env:"HOST" default:"localhost"`
+//	}
+//
+// # envprefix Tag
+//
+// Use envprefix on named struct fields to override the auto-generated prefix:
+//
+//	type Config struct {
+//	    Database DBConfig `envprefix:"DB_"` // reads DB_URL instead of DATABASE_URL
+//	}
+//
+// Use envprefix:"-" to skip the nesting prefix entirely, so inner env tags
+// are used as-is.
+//
 // # MustLoad
 //
 // For use in main() or init(), MustLoad panics on error:

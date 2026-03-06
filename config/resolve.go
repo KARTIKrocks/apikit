@@ -44,14 +44,40 @@ func resolveStruct(rv reflect.Value, userPrefix, structPrefix, namePrefix string
 		// Handle nested structs (no env tag).
 		envTag := field.Tag.Get("env")
 		if fieldVal.Kind() == reflect.Struct && envTag == "" && field.Type != reflect.TypeFor[time.Duration]() {
-			// Extend structPrefix with the field name.
-			nestedStructPrefix := structPrefix + strings.ToUpper(field.Name) + "_"
+			// Determine the nesting prefix for this struct field.
+			//
+			// Rules:
+			//   1. Embedded (anonymous) structs are transparent — no prefix added.
+			//      This lets users compose configs: embedding BaseConfig makes its
+			//      fields resolve as if declared directly on the parent.
+			//   2. Named struct fields with envprefix:"-" skip the auto-prefix,
+			//      so inner env tags are used as-is.
+			//   3. Named struct fields with envprefix:"CUSTOM" use that value
+			//      as the prefix (no trailing "_" is added — include it if needed).
+			//   4. Named struct fields without envprefix use UPPER(FieldName)+"_".
+			var nestedStructPrefix string
+			if field.Anonymous {
+				// Embedded struct: inherit parent prefix unchanged.
+				nestedStructPrefix = structPrefix
+			} else if ep, ok := field.Tag.Lookup("envprefix"); ok {
+				if ep == "-" {
+					// Explicit opt-out: no nesting prefix.
+					nestedStructPrefix = structPrefix
+				} else {
+					nestedStructPrefix = structPrefix + ep
+				}
+			} else {
+				// Default: auto-prefix from field name.
+				nestedStructPrefix = structPrefix + strings.ToUpper(field.Name) + "_"
+			}
 
 			nestedNamePrefix := namePrefix
-			if nestedNamePrefix != "" {
-				nestedNamePrefix += "." + field.Name
-			} else {
-				nestedNamePrefix = field.Name
+			if !field.Anonymous {
+				if nestedNamePrefix != "" {
+					nestedNamePrefix += "." + field.Name
+				} else {
+					nestedNamePrefix = field.Name
+				}
 			}
 
 			if err := resolveStruct(fieldVal, userPrefix, nestedStructPrefix, nestedNamePrefix, envFileValues, jsonValues); err != nil {
