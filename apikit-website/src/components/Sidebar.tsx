@@ -81,6 +81,8 @@ const sections: Section[] = [
       { id: 'config-options', label: 'Options' },
       { id: 'config-tags', label: 'Struct Tags' },
       { id: 'config-nested', label: 'Nested Structs' },
+      { id: 'config-embedded', label: 'Embedded Structs' },
+      { id: 'config-envprefix', label: 'envprefix Tag' },
       { id: 'config-types', label: 'Supported Types' },
     ],
   },

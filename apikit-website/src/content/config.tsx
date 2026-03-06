@@ -14,6 +14,8 @@ export default function ConfigDocs() {
         'Default values via default tags',
         'Validation via validate tags',
         'Nested struct support with automatic flattening',
+        'Embedded (anonymous) struct support — transparent, no extra prefix',
+        'envprefix tag to override nesting prefix',
         'Duration and slice types supported',
         'Priority: env vars > .env file > JSON file > defaults',
       ]}
@@ -58,6 +60,8 @@ config.MustLoad(&cfg,
           <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent">env:"VAR_NAME"</td><td className="py-2 text-text-muted">Map field to environment variable</td></tr>
           <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent">default:"value"</td><td className="py-2 text-text-muted">Default value if not set</td></tr>
           <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent">validate:"rules"</td><td className="py-2 text-text-muted">Validation rules</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent">envprefix:"PREFIX_"</td><td className="py-2 text-text-muted">Override nesting prefix for struct fields</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent">envprefix:"-"</td><td className="py-2 text-text-muted">Skip nesting prefix — inner env tags used as-is</td></tr>
         </tbody></table>
       </div>
 
@@ -75,6 +79,50 @@ config.MustLoad(&cfg,
 }
 // Reads: DB_HOST, DB_PORT, DB_PASSWORD, REDIS_ADDR, REDIS_DB
 // With prefix "APP": APP_DB_HOST, APP_REDIS_ADDR, etc.`} />
+
+      <h3 id="config-embedded" className="text-lg font-semibold text-text-heading mt-8 mb-2">Embedded Structs</h3>
+      <p className="text-text-muted text-sm mb-3">
+        Embedded (anonymous) structs are transparent — their fields resolve as if declared directly on the parent, with no extra prefix added. This lets you compose configs from reusable base types.
+      </p>
+      <CodeBlock code={`type Base struct {
+    Env  string \`env:"ENV"  default:"development"\`
+    Port int    \`env:"PORT" default:"8080"\`
+}
+
+type Config struct {
+    Base                                          // reads ENV, PORT (not BASE_ENV)
+    Host string \`env:"HOST" default:"localhost"\`
+}
+// With prefix "APP": reads APP_ENV, APP_PORT, APP_HOST`} />
+
+      <h3 id="config-envprefix" className="text-lg font-semibold text-text-heading mt-8 mb-2">envprefix Tag</h3>
+      <p className="text-text-muted text-sm mb-3">
+        Use <code className="text-accent">envprefix</code> on named struct fields to override the auto-generated nesting prefix. This is useful when the field name differs from the desired env var prefix.
+      </p>
+      <CodeBlock code={`type JWTConfig struct {
+    Secret string \`env:"SECRET"\`
+    Expiry string \`env:"EXPIRY" default:"15m"\`
+}
+
+type DBConfig struct {
+    URL string \`env:"URL"\`
+}
+
+type Config struct {
+    JWT      JWTConfig \`envprefix:"JWT_"\`  // reads JWT_SECRET, JWT_EXPIRY
+    Database DBConfig  \`envprefix:"DB_"\`   // reads DB_URL (not DATABASE_URL)
+}
+// With prefix "APP": reads APP_JWT_SECRET, APP_DB_URL`} />
+      <p className="text-text-muted text-sm mt-3 mb-3">
+        Use <code className="text-accent">envprefix:"-"</code> to skip the nesting prefix entirely, so inner <code className="text-accent">env</code> tags are used as-is:
+      </p>
+      <CodeBlock code={`type Config struct {
+    JWT JWTConfig \`envprefix:"-"\` // no prefix added
+}
+
+type JWTConfig struct {
+    Secret string \`env:"JWT_SECRET"\` // reads JWT_SECRET directly
+}`} />
 
       <h3 id="config-types" className="text-lg font-semibold text-text-heading mt-8 mb-2">Supported Types</h3>
       <div className="overflow-x-auto mb-4">
