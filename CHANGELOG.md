@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **config** — `envprefix` struct tag for named struct fields to override the auto-generated nesting prefix (e.g., `envprefix:"DB_"` reads `DB_URL` instead of `DATABASE_URL`)
 - **config** — `envprefix:"-"` to skip the nesting prefix entirely, so inner `env` tags are used as-is
 
-## [0.10.0] - 
+## [0.10.0] - 2026-02-28
 
 ### Added
 
