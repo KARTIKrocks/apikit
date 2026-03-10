@@ -315,9 +315,9 @@ func main() {
 	// Priority: env vars > .env file > JSON file > default tags.
 	var cfg AppConfig
 	config.MustLoad(&cfg,
-		config.WithEnvFile(".env"),                // load .env if it exists
-		config.WithJSONFile("config.json"),        // load JSON config if it exists
-		config.WithPrefix("APP"),                  // APP_PORT, APP_DATABASE_URL, etc.
+		config.WithEnvFile(".env"),         // load .env if it exists
+		config.WithJSONFile("config.json"), // load JSON config if it exists
+		config.WithPrefix("APP"),           // APP_PORT, APP_DATABASE_URL, etc.
 	)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -390,8 +390,8 @@ func main() {
 	)
 
 	// Public health routes — readiness and liveness probes
-	r.Get("/health", hc.Handler())      // runs all checks, returns 200 or 503
-	r.Get("/livez", hc.LiveHandler())    // always 200, confirms process is alive
+	r.Get("/health", hc.Handler())    // runs all checks, returns 200 or 503
+	r.Get("/livez", hc.LiveHandler()) // always 200, confirms process is alive
 
 	// Protected API routes
 	api := r.Group("/api/v1", auth)
@@ -401,8 +401,8 @@ func main() {
 	api.Put("/users/{id}", updateUser)        // error-returning pattern
 	api.DeleteFunc("/users/{id}", deleteUser) // stdlib handler (no error return)
 	api.Get("/events/stream", streamEvents)
-	api.Get("/users/{id}/builder", getUserWithBuilder)              // builder pattern
-	api.Post("/users/{from}/transfer-role/{to}", transferRole(db))  // transaction example
+	api.Get("/users/{id}/builder", getUserWithBuilder)             // builder pattern
+	api.Post("/users/{from}/transfer-role/{to}", transferRole(db)) // transaction example
 
 	srv := server.New(r,
 		server.WithAddr(fmt.Sprintf(":%d", cfg.Port)),

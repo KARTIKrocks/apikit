@@ -40,9 +40,9 @@ type CORSConfig struct {
 // For production, you should specify AllowOrigins explicitly.
 func DefaultCORSConfig() CORSConfig {
 	return CORSConfig{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Content-Type", "Authorization", "X-Request-ID", "X-API-Key"},
+		AllowOrigins:  []string{"*"},
+		AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Content-Type", "Authorization", "X-Request-ID", "X-API-Key"},
 		ExposeHeaders: []string{"X-Request-ID"},
 		MaxAge:        12 * time.Hour,
 	}
