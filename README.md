@@ -1,6 +1,7 @@
 # apikit
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/KARTIKrocks/apikit.svg)](https://pkg.go.dev/github.com/KARTIKrocks/apikit)
+[![CI](https://github.com/KARTIKrocks/apikit/actions/workflows/ci.yml/badge.svg)](https://github.com/KARTIKrocks/apikit/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/KARTIKrocks/apikit)](https://goreportcard.com/report/github.com/KARTIKrocks/apikit)
 
 A production-ready Go toolkit for building REST APIs. Zero mandatory dependencies. Works with any `net/http` compatible router.

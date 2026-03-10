@@ -37,25 +37,25 @@ type Client struct {
 	mu         sync.RWMutex
 
 	// config fields
-	timeout      time.Duration
-	maxRetries   int
-	retryDelay   time.Duration
+	timeout       time.Duration
+	maxRetries    int
+	retryDelay    time.Duration
 	maxRetryDelay time.Duration
-	logger       *slog.Logger
-	cb           *CircuitBreaker
-	transport    http.RoundTripper
+	logger        *slog.Logger
+	cb            *CircuitBreaker
+	transport     http.RoundTripper
 }
 
 // New creates a new HTTP client with the given base URL and options.
 func New(baseURL string, opts ...Option) *Client {
 	c := &Client{
-		baseURL:      baseURL,
-		headers:      make(map[string]string),
-		timeout:      30 * time.Second,
-		maxRetries:   3,
-		retryDelay:   time.Second,
+		baseURL:       baseURL,
+		headers:       make(map[string]string),
+		timeout:       30 * time.Second,
+		maxRetries:    3,
+		retryDelay:    time.Second,
 		maxRetryDelay: 10 * time.Second,
-		logger:       slog.Default(),
+		logger:        slog.Default(),
 	}
 
 	for _, opt := range opts {

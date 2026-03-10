@@ -11,7 +11,7 @@ type CircuitState int
 
 // Circuit breaker states.
 const (
-	StateClosed   CircuitState = iota
+	StateClosed CircuitState = iota
 	StateOpen
 	StateHalfOpen
 )
@@ -45,7 +45,6 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 	}
 
 	err := fn()
-
 	if err != nil {
 		cb.onFailure()
 		return err
