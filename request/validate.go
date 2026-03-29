@@ -1,8 +1,8 @@
 package request
 
 import (
-	"slices"
 	"regexp"
+	"slices"
 
 	"github.com/KARTIKrocks/apikit/errors"
 )

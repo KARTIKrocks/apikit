@@ -31,8 +31,8 @@ import (
 
 // Default limits
 const (
-	DefaultMaxBodySize           = 1 << 20  // 1 MB
-	DefaultMaxMultipartMemory    = 32 << 20 // 32 MB
+	DefaultMaxBodySize        = 1 << 20  // 1 MB
+	DefaultMaxMultipartMemory = 32 << 20 // 32 MB
 )
 
 // Config holds request binding configuration.

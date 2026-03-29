@@ -25,7 +25,7 @@ type Server struct {
 	doneCh          chan struct{} // closed when Start() returns
 	tlsCertFile     string
 	tlsKeyFile      string
-	listenAddr      atomic.Value  // stores net.Addr after listening
+	listenAddr      atomic.Value // stores net.Addr after listening
 }
 
 // Option configures a Server.

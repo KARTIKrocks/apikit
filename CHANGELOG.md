@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-03-29
+
+### Changed
+
+- **ci** — Test matrix now covers Go 1.22–1.26; updated `actions/checkout` and `actions/setup-go` to v6, `golangci-lint-action` to v9 (lint v2.11)
+- **ci** — Added dedicated coverage job with Codecov upload and benchmark job on push to main
+- **ci** — Added CodeQL security analysis workflow
+- **ci** — Added Dependabot configuration for automated dependency updates
+- **ci** — Added bug report / feature request issue templates and pull request template
+- **build** — Added `fmt` (gofmt + goimports) and `ci` Makefile targets; enabled `-race` in test targets
+- **build** — Added `gocyclo` linter (max complexity 15) and simplified `.golangci.yml` exclusion rules
+- **config** — Refactored `resolveStruct` by extracting `nestedEnvPrefix` and `nestedDisplayName` helpers to reduce cyclomatic complexity
+- **sqlbuilder** — Refactored `rebasePlaceholders` by extracting `tryRebaseSingle` fast-path helper to reduce cyclomatic complexity
+- **sqlbuilder** — Decomposed `SelectBuilder.Build` into 8 focused write methods to reduce cyclomatic complexity
+- **request** — Simplified `TestDecodeFormValues_AllTypes` using `reflect.DeepEqual`
+- Fixed struct field alignment across `health`, `request`, `sqlbuilder` packages
+- Fixed import ordering in `request/tag_validator.go` and `request/validate.go`
+
 ## [0.11.0] - 2026-03-06
 
 ### Added

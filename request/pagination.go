@@ -78,7 +78,7 @@ type PaginationConfig struct {
 	DefaultPage    int
 	DefaultPerPage int
 	MaxPerPage     int
-	PageParam string
+	PageParam      string
 	// PerPageParams lists parameter names to try in order for per-page detection.
 	// The first matching non-empty parameter wins. If empty, defaults to
 	// ["per_page", "page_size", "limit"].

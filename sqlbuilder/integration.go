@@ -21,4 +21,3 @@ func ApplySort(sb *SelectBuilder, sorts []request.SortField, allowedColumns map[
 func ApplyFilters(sb *SelectBuilder, filters []request.Filter, allowedColumns map[string]string) *SelectBuilder {
 	return sb.ApplyFilters(filters, allowedColumns)
 }
-

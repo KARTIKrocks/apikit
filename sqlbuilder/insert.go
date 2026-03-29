@@ -8,16 +8,16 @@ import (
 
 // InsertBuilder builds INSERT queries.
 type InsertBuilder struct {
-	dialect    Dialect
-	table      string
-	columns    []string
-	rows       [][]any
-	fromSelect   *SelectBuilder
+	dialect        Dialect
+	table          string
+	columns        []string
+	rows           [][]any
+	fromSelect     *SelectBuilder
 	onConflict     string
 	onConflictArgs []any
 	returning      []string
-	returningExpr []Expr
-	ctes          []cte
+	returningExpr  []Expr
+	ctes           []cte
 }
 
 // Insert creates a new InsertBuilder for the given table.

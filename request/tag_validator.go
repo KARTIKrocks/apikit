@@ -1,12 +1,12 @@
 package request
 
 import (
-	"slices"
 	"fmt"
 	"net/mail"
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"

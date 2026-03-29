@@ -590,46 +590,59 @@ func (s *SelectBuilder) Build() (string, []any) {
 	args := make([]any, 0, 8)
 	ac := &argCounter{}
 
-	// CTEs
-	cteArgs := writeCTEs(&sb, s.ctes, ac)
-	args = append(args, cteArgs...)
+	args = append(args, writeCTEs(&sb, s.ctes, ac)...)
+	args = append(args, s.writeSelectColumns(&sb, ac)...)
+	args = append(args, s.writeFrom(&sb, ac)...)
+	args = append(args, s.writeJoins(&sb, ac)...)
+	args = append(args, writeWhereClause(&sb, s.conditions, ac)...)
+	args = append(args, s.writeGroupBy(&sb, ac)...)
+	args = append(args, s.writeHaving(&sb, ac)...)
+	args = append(args, s.writeSetOps(&sb, ac)...)
+	args = append(args, s.writeOrderBy(&sb, ac)...)
+	s.writeLimitOffsetLock(&sb)
 
-	// SELECT
+	return convertPlaceholders(sb.String(), s.dialect), args
+}
+
+func (s *SelectBuilder) writeSelectColumns(sb *strings.Builder, ac *argCounter) []any {
 	sb.WriteString("SELECT ")
 	if len(s.distinctOn) > 0 {
 		sb.WriteString("DISTINCT ON (")
-		writeJoined(&sb, s.distinctOn, ", ")
+		writeJoined(sb, s.distinctOn, ", ")
 		sb.WriteString(") ")
 	} else if s.distinct {
 		sb.WriteString("DISTINCT ")
 	}
 
-	// Columns
 	colCount := len(s.columns) + len(s.columnExpr)
 	if colCount == 0 {
 		sb.WriteString("*")
-	} else {
-		written := 0
-		for _, col := range s.columns {
-			if written > 0 {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(col)
-			written++
-		}
-		for _, e := range s.columnExpr {
-			if written > 0 {
-				sb.WriteString(", ")
-			}
-			rebased := rebasePlaceholders(e.SQL, ac.offset())
-			sb.WriteString(rebased)
-			args = append(args, e.Args...)
-			ac.n += len(e.Args)
-			written++
-		}
+		return nil
 	}
 
-	// FROM
+	var args []any
+	written := 0
+	for _, col := range s.columns {
+		if written > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(col)
+		written++
+	}
+	for _, e := range s.columnExpr {
+		if written > 0 {
+			sb.WriteString(", ")
+		}
+		rebased := rebasePlaceholders(e.SQL, ac.offset())
+		sb.WriteString(rebased)
+		args = append(args, e.Args...)
+		ac.n += len(e.Args)
+		written++
+	}
+	return args
+}
+
+func (s *SelectBuilder) writeFrom(sb *strings.Builder, ac *argCounter) []any {
 	if s.fromSubquery != nil {
 		subSQL, subArgs := buildSelectPostgres(s.fromSubquery)
 		sb.WriteString(" FROM (")
@@ -637,14 +650,18 @@ func (s *SelectBuilder) Build() (string, []any) {
 		sb.WriteString(rebased)
 		sb.WriteString(") ")
 		sb.WriteString(s.fromSubAlias)
-		args = append(args, subArgs...)
 		ac.n += len(subArgs)
-	} else if s.from != "" {
+		return subArgs
+	}
+	if s.from != "" {
 		sb.WriteString(" FROM ")
 		sb.WriteString(s.from)
 	}
+	return nil
+}
 
-	// JOINs
+func (s *SelectBuilder) writeJoins(sb *strings.Builder, ac *argCounter) []any {
+	var args []any
 	for _, j := range s.joins {
 		sb.WriteByte(' ')
 		sb.WriteString(j.kind)
@@ -669,41 +686,48 @@ func (s *SelectBuilder) Build() (string, []any) {
 			ac.n += len(j.args)
 		}
 	}
+	return args
+}
 
-	// WHERE
-	whereArgs := writeWhereClause(&sb, s.conditions, ac)
-	args = append(args, whereArgs...)
-
-	// GROUP BY
-	if len(s.groupBy) > 0 || len(s.groupByExpr) > 0 {
-		sb.WriteString(" GROUP BY ")
-		writeJoined(&sb, s.groupBy, ", ")
-		for i, e := range s.groupByExpr {
-			if len(s.groupBy) > 0 || i > 0 {
-				sb.WriteString(", ")
-			}
-			rebased := rebasePlaceholders(e.SQL, ac.offset())
-			sb.WriteString(rebased)
-			args = append(args, e.Args...)
-			ac.n += len(e.Args)
-		}
+func (s *SelectBuilder) writeGroupBy(sb *strings.Builder, ac *argCounter) []any {
+	if len(s.groupBy) == 0 && len(s.groupByExpr) == 0 {
+		return nil
 	}
-
-	// HAVING
-	if len(s.having) > 0 {
-		sb.WriteString(" HAVING ")
-		for i := range s.having {
-			if i > 0 {
-				sb.WriteString(" AND ")
-			}
-			rebased := rebasePlaceholders(s.having[i].sql, ac.offset())
-			sb.WriteString(rebased)
-			args = append(args, s.having[i].args...)
-			ac.n += len(s.having[i].args)
+	sb.WriteString(" GROUP BY ")
+	writeJoined(sb, s.groupBy, ", ")
+	var args []any
+	for i, e := range s.groupByExpr {
+		if len(s.groupBy) > 0 || i > 0 {
+			sb.WriteString(", ")
 		}
+		rebased := rebasePlaceholders(e.SQL, ac.offset())
+		sb.WriteString(rebased)
+		args = append(args, e.Args...)
+		ac.n += len(e.Args)
 	}
+	return args
+}
 
-	// Set operations
+func (s *SelectBuilder) writeHaving(sb *strings.Builder, ac *argCounter) []any {
+	if len(s.having) == 0 {
+		return nil
+	}
+	sb.WriteString(" HAVING ")
+	var args []any
+	for i := range s.having {
+		if i > 0 {
+			sb.WriteString(" AND ")
+		}
+		rebased := rebasePlaceholders(s.having[i].sql, ac.offset())
+		sb.WriteString(rebased)
+		args = append(args, s.having[i].args...)
+		ac.n += len(s.having[i].args)
+	}
+	return args
+}
+
+func (s *SelectBuilder) writeSetOps(sb *strings.Builder, ac *argCounter) []any {
+	var args []any
 	for _, op := range s.setOps {
 		sb.WriteByte(' ')
 		sb.WriteString(setOpKeyword(op.kind))
@@ -713,35 +737,37 @@ func (s *SelectBuilder) Build() (string, []any) {
 		args = append(args, op.query.Args...)
 		ac.n += len(op.query.Args)
 	}
+	return args
+}
 
-	// ORDER BY
-	if len(s.orderBy) > 0 || len(s.orderByExpr) > 0 {
-		sb.WriteString(" ORDER BY ")
-		writeJoined(&sb, s.orderBy, ", ")
-		for i, e := range s.orderByExpr {
-			if len(s.orderBy) > 0 || i > 0 {
-				sb.WriteString(", ")
-			}
-			rebased := rebasePlaceholders(e.SQL, ac.offset())
-			sb.WriteString(rebased)
-			args = append(args, e.Args...)
-			ac.n += len(e.Args)
-		}
+func (s *SelectBuilder) writeOrderBy(sb *strings.Builder, ac *argCounter) []any {
+	if len(s.orderBy) == 0 && len(s.orderByExpr) == 0 {
+		return nil
 	}
+	sb.WriteString(" ORDER BY ")
+	writeJoined(sb, s.orderBy, ", ")
+	var args []any
+	for i, e := range s.orderByExpr {
+		if len(s.orderBy) > 0 || i > 0 {
+			sb.WriteString(", ")
+		}
+		rebased := rebasePlaceholders(e.SQL, ac.offset())
+		sb.WriteString(rebased)
+		args = append(args, e.Args...)
+		ac.n += len(e.Args)
+	}
+	return args
+}
 
-	// LIMIT
+func (s *SelectBuilder) writeLimitOffsetLock(sb *strings.Builder) {
 	if s.hasLimit {
 		sb.WriteString(" LIMIT ")
 		sb.WriteString(strconv.Itoa(s.limit))
 	}
-
-	// OFFSET
 	if s.hasOffset {
 		sb.WriteString(" OFFSET ")
 		sb.WriteString(strconv.FormatInt(s.offsetVal, 10))
 	}
-
-	// Locking
 	if s.lockMode != "" {
 		sb.WriteByte(' ')
 		sb.WriteString(s.lockMode)
@@ -752,8 +778,6 @@ func (s *SelectBuilder) Build() (string, []any) {
 			sb.WriteString(" NOWAIT")
 		}
 	}
-
-	return convertPlaceholders(sb.String(), s.dialect), args
 }
 
 // MustBuild calls Build and panics if the builder is in an invalid state.

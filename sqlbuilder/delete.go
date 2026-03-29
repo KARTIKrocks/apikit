@@ -7,9 +7,9 @@ import (
 
 // DeleteBuilder builds DELETE queries.
 type DeleteBuilder struct {
-	dialect    Dialect
-	table      string
-	using      []string
+	dialect       Dialect
+	table         string
+	using         []string
 	conditions    []condition
 	returning     []string
 	returningExpr []Expr
