@@ -18,10 +18,6 @@ linters:
       rules:
         - name: exported
           disabled: true
-  formatters:
-    enable:
-      - gofmt
-      - goimports
   exclusions:
     rules:
       - linters:
@@ -30,3 +26,8 @@ linters:
       - linters:
           - errcheck
         path: examples/
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
