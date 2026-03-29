@@ -252,4 +252,3 @@ func parseBool(s string) (bool, error) {
 		return strconv.ParseBool(s)
 	}
 }
-

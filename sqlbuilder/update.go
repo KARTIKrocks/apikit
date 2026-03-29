@@ -7,10 +7,10 @@ import (
 
 // UpdateBuilder builds UPDATE queries.
 type UpdateBuilder struct {
-	dialect    Dialect
-	table      string
-	setClauses []setClause
-	fromTables []string
+	dialect       Dialect
+	table         string
+	setClauses    []setClause
+	fromTables    []string
 	conditions    []condition
 	returning     []string
 	returningExpr []Expr

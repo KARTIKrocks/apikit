@@ -7,9 +7,9 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"reflect"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -85,41 +85,22 @@ func TestDecodeFormValues_AllTypes(t *testing.T) {
 	if err := decodeFormValues(vals, &f); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if f.Str != "hello" {
-		t.Errorf("Str = %q, want %q", f.Str, "hello")
+	want := typedForm{
+		Str:   "hello",
+		Bool:  true,
+		Int:   -42,
+		Int8:  -8,
+		Int16: -16,
+		Int32: -32,
+		Int64: -64,
+		Uint:  42,
+		Uint8: 8,
+		F32:   3.14,
+		F64:   2.718,
+		Tags:  []string{"go", "api", "kit"},
 	}
-	if f.Bool != true {
-		t.Errorf("Bool = %v, want true", f.Bool)
-	}
-	if f.Int != -42 {
-		t.Errorf("Int = %d, want -42", f.Int)
-	}
-	if f.Int8 != -8 {
-		t.Errorf("Int8 = %d, want -8", f.Int8)
-	}
-	if f.Int16 != -16 {
-		t.Errorf("Int16 = %d, want -16", f.Int16)
-	}
-	if f.Int32 != -32 {
-		t.Errorf("Int32 = %d, want -32", f.Int32)
-	}
-	if f.Int64 != -64 {
-		t.Errorf("Int64 = %d, want -64", f.Int64)
-	}
-	if f.Uint != 42 {
-		t.Errorf("Uint = %d, want 42", f.Uint)
-	}
-	if f.Uint8 != 8 {
-		t.Errorf("Uint8 = %d, want 8", f.Uint8)
-	}
-	if f.F32 != 3.14 {
-		t.Errorf("F32 = %f, want 3.14", f.F32)
-	}
-	if f.F64 != 2.718 {
-		t.Errorf("F64 = %f, want 2.718", f.F64)
-	}
-	if len(f.Tags) != 3 || f.Tags[0] != "go" || f.Tags[1] != "api" || f.Tags[2] != "kit" {
-		t.Errorf("Tags = %v, want [go api kit]", f.Tags)
+	if !reflect.DeepEqual(f, want) {
+		t.Errorf("got %+v, want %+v", f, want)
 	}
 }
 

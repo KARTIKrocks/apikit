@@ -45,8 +45,8 @@ type CheckResult struct {
 // Response is the full health check response.
 type Response struct {
 	Status    string                 `json:"status"`
-	Checks   map[string]CheckResult `json:"checks,omitempty"`
-	Timestamp int64                 `json:"timestamp"`
+	Checks    map[string]CheckResult `json:"checks,omitempty"`
+	Timestamp int64                  `json:"timestamp"`
 }
 
 // namedCheck is an internal type pairing a name with its check function.
@@ -156,7 +156,7 @@ func (c *Checker) Check(ctx context.Context) Response {
 
 	return Response{
 		Status:    overall,
-		Checks:   checks,
+		Checks:    checks,
 		Timestamp: time.Now().Unix(),
 	}
 }

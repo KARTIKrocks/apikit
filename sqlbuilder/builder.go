@@ -28,6 +28,25 @@ func (a *argCounter) writePlaceholder(sb *strings.Builder) {
 	sb.WriteString(strconv.Itoa(a.n))
 }
 
+// tryRebaseSingle handles the fast path for SQL fragments with a single placeholder.
+// Most WHERE fragments look like "col = $1" or "col > $1".
+// Returns the rebased string and true if the fast path applied.
+func tryRebaseSingle(sql string, offset int) (string, bool) {
+	idx := strings.IndexByte(sql, '$')
+	if idx < 0 || idx+1 >= len(sql) || sql[idx+1] < '1' || sql[idx+1] > '9' {
+		return "", false
+	}
+	end := idx + 1
+	for end < len(sql) && sql[end] >= '0' && sql[end] <= '9' {
+		end++
+	}
+	if strings.IndexByte(sql[end:], '$') >= 0 {
+		return "", false
+	}
+	n, _ := strconv.Atoi(sql[idx+1 : end])
+	return sql[:idx] + "$" + strconv.Itoa(n+offset) + sql[end:], true
+}
+
 // rebasePlaceholders rewrites $1, $2, ... in sql by adding offset to each number.
 // If offset is 0, the string is returned unchanged.
 func rebasePlaceholders(sql string, offset int) string {
@@ -35,19 +54,8 @@ func rebasePlaceholders(sql string, offset int) string {
 		return sql
 	}
 
-	// Fast path: single placeholder at known position.
-	// Most WHERE fragments look like "col = $1" or "col > $1".
-	if idx := strings.IndexByte(sql, '$'); idx >= 0 && idx+1 < len(sql) && sql[idx+1] >= '1' && sql[idx+1] <= '9' {
-		// Check if there's only one placeholder and it's $N.
-		end := idx + 1
-		for end < len(sql) && sql[end] >= '0' && sql[end] <= '9' {
-			end++
-		}
-		// If the rest has no more $, use fast path.
-		if strings.IndexByte(sql[end:], '$') < 0 {
-			n, _ := strconv.Atoi(sql[idx+1 : end])
-			return sql[:idx] + "$" + strconv.Itoa(n+offset) + sql[end:]
-		}
+	if result, ok := tryRebaseSingle(sql, offset); ok {
+		return result
 	}
 
 	var b strings.Builder
