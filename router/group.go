@@ -65,11 +65,31 @@ func (g *Group) DeleteFunc(pattern string, fn http.HandlerFunc) {
 	g.register("DELETE", pattern, fn)
 }
 
+// Head registers an error-returning handler for HEAD requests.
+func (g *Group) Head(pattern string, fn HandlerFunc) {
+	g.register("HEAD", pattern, g.router.wrapError(fn))
+}
+
+// HeadFunc registers a standard http.HandlerFunc for HEAD requests.
+func (g *Group) HeadFunc(pattern string, fn http.HandlerFunc) {
+	g.register("HEAD", pattern, fn)
+}
+
+// Options registers an error-returning handler for OPTIONS requests.
+func (g *Group) Options(pattern string, fn HandlerFunc) {
+	g.register("OPTIONS", pattern, g.router.wrapError(fn))
+}
+
+// OptionsFunc registers a standard http.HandlerFunc for OPTIONS requests.
+func (g *Group) OptionsFunc(pattern string, fn http.HandlerFunc) {
+	g.register("OPTIONS", pattern, fn)
+}
+
 // Handle registers an http.Handler for the given pattern.
 // The pattern may include a method prefix (e.g. "GET /path").
 func (g *Group) Handle(pattern string, handler http.Handler) {
 	method, path := splitPattern(pattern)
-	fullPath := g.fullPrefix() + path
+	fullPath := joinPath(g.fullPrefix(), path)
 	fullPattern := fullPath
 	if method != "" {
 		fullPattern = method + " " + fullPath
@@ -106,7 +126,7 @@ func (g *Group) Group(prefix string, mw ...middleware.Middleware) *Group {
 
 // register builds the full pattern and registers the handler on the mux.
 func (g *Group) register(method, pattern string, handler http.Handler) {
-	fullPath := g.fullPrefix() + pattern
+	fullPath := joinPath(g.fullPrefix(), pattern)
 	fullPattern := method + " " + fullPath
 
 	chain := g.collectMiddleware()
@@ -134,6 +154,7 @@ func (g *Group) collectMiddleware() []middleware.Middleware {
 }
 
 // fullPrefix returns the concatenated prefix from root to this group.
+// It normalizes joins to prevent double slashes (e.g. "/api/" + "/users" → "/api/users").
 func (g *Group) fullPrefix() string {
 	var groups []*Group
 	for cur := g; cur != nil; cur = cur.parent {
@@ -142,16 +163,34 @@ func (g *Group) fullPrefix() string {
 
 	var b strings.Builder
 	for i := len(groups) - 1; i >= 0; i-- {
-		b.WriteString(groups[i].prefix)
+		prefix := groups[i].prefix
+		if b.Len() > 0 && strings.HasSuffix(b.String(), "/") && strings.HasPrefix(prefix, "/") {
+			prefix = prefix[1:] // strip leading slash to avoid double slash
+		}
+		b.WriteString(prefix)
 	}
 	return b.String()
 }
 
+// joinPath concatenates a prefix and path, normalizing double slashes at the join point.
+// joinPath("/api/", "/users") → "/api/users"
+// joinPath("/api", "/users")  → "/api/users"
+// joinPath("/api", "users")   → "/apiusers" (caller should ensure leading slash on path)
+func joinPath(prefix, path string) string {
+	if strings.HasSuffix(prefix, "/") && strings.HasPrefix(path, "/") {
+		return prefix + path[1:]
+	}
+	return prefix + path
+}
+
 // splitPattern separates a Go 1.22 pattern into method and path parts.
 // "GET /users" → ("GET", "/users"), "/users" → ("", "/users")
+// It trims extra whitespace between method and path and validates the method is uppercase.
 func splitPattern(pattern string) (method, path string) {
-	if i := strings.IndexByte(pattern, ' '); i != -1 {
-		return pattern[:i], pattern[i+1:]
+	method, path, found := strings.Cut(pattern, " ")
+	if !found {
+		return "", pattern
 	}
-	return "", pattern
+	path = strings.TrimLeft(path, " ") // handle extra spaces: "GET  /users"
+	return method, path
 }

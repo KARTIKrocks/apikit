@@ -417,3 +417,377 @@ func TestGroupFuncHelpers(t *testing.T) {
 		t.Error("expected middleware to be applied to GetFunc")
 	}
 }
+
+func TestNotFoundReturnsJSON(t *testing.T) {
+	r := New()
+	r.Get("/exists", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "ok")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/does-not-exist")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+
+	var env errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("failed to decode JSON 404 response: %v", err)
+	}
+	if env.Success {
+		t.Error("expected success=false")
+	}
+	if env.Error.Code != "NOT_FOUND" {
+		t.Errorf("expected code NOT_FOUND, got %s", env.Error.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Errorf("expected JSON content type, got %q", ct)
+	}
+}
+
+func TestMethodNotAllowedReturnsJSON(t *testing.T) {
+	r := New()
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "users")
+		return nil
+	})
+
+	// POST /users is not registered, only GET is — ServeMux returns 405.
+	rec := doRequest(r, "POST", "/users")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+
+	var env errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("failed to decode JSON 405 response: %v", err)
+	}
+	if env.Success {
+		t.Error("expected success=false")
+	}
+	if env.Error.Code != "METHOD_NOT_ALLOWED" {
+		t.Errorf("expected code METHOD_NOT_ALLOWED, got %s", env.Error.Code)
+	}
+}
+
+func TestHandlerWriting404IsNotIntercepted(t *testing.T) {
+	r := New()
+	r.Get("/custom-404", func(w http.ResponseWriter, req *http.Request) error {
+		// Handler explicitly writes a 404 with its own body — should NOT be intercepted.
+		w.Write([]byte("custom body"))
+		w.WriteHeader(http.StatusNotFound) // after Write, this is a no-op per http spec, but tests the probe path
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/custom-404")
+	if rec.Body.String() != "custom body" {
+		t.Errorf("expected custom body, got %q", rec.Body.String())
+	}
+}
+
+func TestDoubleSlashNormalization(t *testing.T) {
+	r := New()
+	// Trailing slash on prefix + leading slash on pattern.
+	api := r.Group("/api/")
+	api.Get("/users", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "users")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/api/users")
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "users" {
+		t.Errorf("expected body %q, got %q", "users", rec.Body.String())
+	}
+}
+
+func TestDoubleSlashNestedGroups(t *testing.T) {
+	r := New()
+	api := r.Group("/api/")
+	v1 := api.Group("/v1/")
+	v1.Get("/items", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "items")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/api/v1/items")
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "items" {
+		t.Errorf("expected body %q, got %q", "items", rec.Body.String())
+	}
+}
+
+func TestDoubleSlashGroupHandle(t *testing.T) {
+	r := New()
+	api := r.Group("/api/")
+	api.Handle("GET /raw", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprint(w, "raw")
+	}))
+
+	rec := doRequest(r, "GET", "/api/raw")
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "raw" {
+		t.Errorf("expected body %q, got %q", "raw", rec.Body.String())
+	}
+}
+
+// --- Pattern precedence with similar routes ---
+
+func TestOverlappingPatterns(t *testing.T) {
+	r := New()
+
+	// Wildcard route — catches /users/<anything>
+	r.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprintf(w, "wildcard:%s", req.PathValue("id"))
+		return nil
+	})
+
+	// Exact literal routes — should take priority over wildcard
+	r.Get("/users/me", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "exact:me")
+		return nil
+	})
+	r.Get("/users/21", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "exact:21")
+		return nil
+	})
+
+	tests := []struct {
+		path     string
+		wantBody string
+	}{
+		{"/users/me", "exact:me"},    // exact match wins over {id}
+		{"/users/21", "exact:21"},    // exact match wins over {id}
+		{"/users/42", "wildcard:42"}, // no exact match — falls through to wildcard
+		{"/users/hello", "wildcard:hello"},
+		{"/users/me-too", "wildcard:me-too"}, // not "me" — wildcard
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := doRequest(r, "GET", tt.path)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
+			}
+			if rec.Body.String() != tt.wantBody {
+				t.Errorf("expected body %q, got %q", tt.wantBody, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestOverlappingPatternsInGroup(t *testing.T) {
+	r := New()
+	api := r.Group("/api/v1")
+
+	api.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprintf(w, "wildcard:%s", req.PathValue("id"))
+		return nil
+	})
+	api.Get("/users/me", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "exact:me")
+		return nil
+	})
+	api.Get("/users/search", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "exact:search")
+		return nil
+	})
+	api.Post("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprintf(w, "post:%s", req.PathValue("id"))
+		return nil
+	})
+
+	tests := []struct {
+		method   string
+		path     string
+		wantBody string
+	}{
+		{"GET", "/api/v1/users/me", "exact:me"},
+		{"GET", "/api/v1/users/search", "exact:search"},
+		{"GET", "/api/v1/users/99", "wildcard:99"},
+		{"GET", "/api/v1/users/abc", "wildcard:abc"},
+		{"POST", "/api/v1/users/99", "post:99"},
+		{"POST", "/api/v1/users/me", "post:me"}, // POST has no /me exact — wildcard handles it
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			rec := doRequest(r, tt.method, tt.path)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
+			}
+			if rec.Body.String() != tt.wantBody {
+				t.Errorf("expected body %q, got %q", tt.wantBody, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestSimilarPrefixPatterns(t *testing.T) {
+	r := New()
+
+	// Routes with very similar prefixes
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "list-users")
+		return nil
+	})
+	r.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprintf(w, "get-user:%s", req.PathValue("id"))
+		return nil
+	})
+	r.Get("/users/{id}/posts", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprintf(w, "user-posts:%s", req.PathValue("id"))
+		return nil
+	})
+	r.Get("/users/{id}/posts/{postID}", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprintf(w, "user-post:%s:%s", req.PathValue("id"), req.PathValue("postID"))
+		return nil
+	})
+	r.Get("/users/{id}/comments", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprintf(w, "user-comments:%s", req.PathValue("id"))
+		return nil
+	})
+
+	tests := []struct {
+		path     string
+		wantBody string
+	}{
+		{"/users", "list-users"},
+		{"/users/5", "get-user:5"},
+		{"/users/5/posts", "user-posts:5"},
+		{"/users/5/posts/10", "user-post:5:10"},
+		{"/users/5/comments", "user-comments:5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := doRequest(r, "GET", tt.path)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
+			}
+			if rec.Body.String() != tt.wantBody {
+				t.Errorf("expected body %q, got %q", tt.wantBody, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestSplitPatternExtraSpaces(t *testing.T) {
+	method, path := splitPattern("GET  /users")
+	if method != "GET" {
+		t.Errorf("expected method GET, got %q", method)
+	}
+	if path != "/users" {
+		t.Errorf("expected path /users, got %q", path)
+	}
+}
+
+func TestSplitPatternNoMethod(t *testing.T) {
+	method, path := splitPattern("/users")
+	if method != "" {
+		t.Errorf("expected empty method, got %q", method)
+	}
+	if path != "/users" {
+		t.Errorf("expected path /users, got %q", path)
+	}
+}
+
+func TestSplitPatternNormalCase(t *testing.T) {
+	method, path := splitPattern("POST /users")
+	if method != "POST" {
+		t.Errorf("expected method POST, got %q", method)
+	}
+	if path != "/users" {
+		t.Errorf("expected path /users, got %q", path)
+	}
+}
+
+func TestHeadAndOptionsHelpers(t *testing.T) {
+	r := New()
+	r.Head("/ping", func(w http.ResponseWriter, req *http.Request) error {
+		w.Header().Set("X-Ping", "pong")
+		return nil
+	})
+	r.Options("/cors", func(w http.ResponseWriter, req *http.Request) error {
+		w.Header().Set("Allow", "GET, POST, OPTIONS")
+		return nil
+	})
+
+	rec := doRequest(r, "HEAD", "/ping")
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD: expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-Ping") != "pong" {
+		t.Errorf("HEAD: expected X-Ping=pong, got %q", rec.Header().Get("X-Ping"))
+	}
+
+	rec = doRequest(r, "OPTIONS", "/cors")
+	if rec.Code != http.StatusOK {
+		t.Errorf("OPTIONS: expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("Allow") != "GET, POST, OPTIONS" {
+		t.Errorf("OPTIONS: expected Allow header, got %q", rec.Header().Get("Allow"))
+	}
+}
+
+func TestHeadFuncAndOptionsFuncHelpers(t *testing.T) {
+	r := New()
+	r.HeadFunc("/ping", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("X-Ping", "pong")
+	})
+	r.OptionsFunc("/cors", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Allow", "GET, OPTIONS")
+	})
+
+	rec := doRequest(r, "HEAD", "/ping")
+	if rec.Code != http.StatusOK {
+		t.Errorf("HeadFunc: expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-Ping") != "pong" {
+		t.Errorf("HeadFunc: expected X-Ping=pong")
+	}
+
+	rec = doRequest(r, "OPTIONS", "/cors")
+	if rec.Code != http.StatusOK {
+		t.Errorf("OptionsFunc: expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("Allow") != "GET, OPTIONS" {
+		t.Errorf("OptionsFunc: expected Allow header")
+	}
+}
+
+func TestGroupHeadAndOptions(t *testing.T) {
+	r := New()
+	api := r.Group("/api", headerMiddleware("X-MW", "yes"))
+
+	api.Head("/ping", func(w http.ResponseWriter, req *http.Request) error {
+		w.Header().Set("X-Ping", "pong")
+		return nil
+	})
+	api.Options("/cors", func(w http.ResponseWriter, req *http.Request) error {
+		w.Header().Set("Allow", "GET")
+		return nil
+	})
+
+	rec := doRequest(r, "HEAD", "/api/ping")
+	if rec.Code != http.StatusOK {
+		t.Errorf("Group HEAD: expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-MW") != "yes" {
+		t.Error("Group HEAD: expected middleware applied")
+	}
+
+	rec = doRequest(r, "OPTIONS", "/api/cors")
+	if rec.Code != http.StatusOK {
+		t.Errorf("Group OPTIONS: expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-MW") != "yes" {
+		t.Error("Group OPTIONS: expected middleware applied")
+	}
+}

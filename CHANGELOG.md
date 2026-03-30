@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-03-30
+
+### Added
+
+- **router** — Method helpers: `Head`, `HeadFunc`, `Options`, `OptionsFunc` on both `Router` and `Group` for HEAD and OPTIONS HTTP methods
+- **router** — Consistent JSON error responses for unmatched routes: 404 and 405 from `http.ServeMux` now go through the router's `ErrorHandler` instead of returning plain text
+- **router** — `joinPath` helper normalizes prefix+pattern concatenation, preventing double-slash bugs (e.g. `Group("/api/")` + `Get("/users")` now correctly registers `/api/users`)
+
+### Fixed
+
+- **router** — `splitPattern` now trims extra whitespace between method and path (e.g. `"GET  /users"` no longer silently creates a broken route)
+- **router** — Group prefix concatenation with nested groups no longer produces double slashes when both prefix and child start/end with `/`
+
 ## [0.11.1] - 2026-03-29
 
 ### Changed
