@@ -99,7 +99,7 @@ func (g *Group) Handle(pattern string, handler http.Handler) {
 	if len(chain) > 0 {
 		handler = middleware.Chain(chain...)(handler)
 	}
-	g.router.mux.Handle(fullPattern, handler)
+	g.router.mux.Handle(fullPattern, markMatched(handler))
 }
 
 // HandleFunc registers an http.HandlerFunc for the given pattern.
@@ -133,7 +133,7 @@ func (g *Group) register(method, pattern string, handler http.Handler) {
 	if len(chain) > 0 {
 		handler = middleware.Chain(chain...)(handler)
 	}
-	g.router.mux.Handle(fullPattern, handler)
+	g.router.mux.Handle(fullPattern, markMatched(handler))
 }
 
 // collectMiddleware walks the parent chain from root to current group
