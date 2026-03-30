@@ -68,8 +68,58 @@ func WithErrorHandler(fn ErrorHandler) Option {
 }
 
 // ServeHTTP implements http.Handler.
+// It intercepts 404 and 405 responses from the underlying ServeMux
+// and routes them through the router's ErrorHandler for consistent error format.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	r.mux.ServeHTTP(w, req)
+	// Use a probe writer to detect 404/405 from ServeMux before writing to the real response.
+	pw := &probeWriter{ResponseWriter: w}
+	r.mux.ServeHTTP(pw, req)
+
+	if !pw.intercepted {
+		return
+	}
+
+	// ServeMux returned 404 or 405 — handle through our error handler.
+	switch pw.code {
+	case http.StatusNotFound:
+		r.errorHandler(w, req, errors.NotFound(""))
+	case http.StatusMethodNotAllowed:
+		r.errorHandler(w, req, &errors.Error{
+			StatusCode: http.StatusMethodNotAllowed,
+			Code:       errors.CodeMethodNotAllowed,
+			Message:    "Method not allowed",
+		})
+	}
+}
+
+// probeWriter intercepts WriteHeader calls to detect 404/405 from ServeMux.
+// If the status is 404 or 405 and no user handler has written to the body,
+// it suppresses the write so the router's ErrorHandler can produce a consistent response.
+type probeWriter struct {
+	http.ResponseWriter
+	code        int
+	intercepted bool
+	wroteBody   bool
+}
+
+func (pw *probeWriter) WriteHeader(code int) {
+	// Only intercept if this is the first write (ServeMux's own 404/405).
+	// If a user handler already wrote body bytes, the handler owns the response.
+	if !pw.wroteBody && (code == http.StatusNotFound || code == http.StatusMethodNotAllowed) {
+		pw.code = code
+		pw.intercepted = true
+		return
+	}
+	pw.ResponseWriter.WriteHeader(code)
+}
+
+func (pw *probeWriter) Write(b []byte) (int, error) {
+	if pw.intercepted {
+		// Suppress the body written by ServeMux's default handler.
+		return len(b), nil
+	}
+	pw.wroteBody = true
+	return pw.ResponseWriter.Write(b)
 }
 
 // Get registers an error-returning handler for GET requests.
@@ -101,6 +151,18 @@ func (r *Router) Delete(pattern string, fn HandlerFunc) { r.group.Delete(pattern
 
 // DeleteFunc registers a standard http.HandlerFunc for DELETE requests.
 func (r *Router) DeleteFunc(pattern string, fn http.HandlerFunc) { r.group.DeleteFunc(pattern, fn) }
+
+// Head registers an error-returning handler for HEAD requests.
+func (r *Router) Head(pattern string, fn HandlerFunc) { r.group.Head(pattern, fn) }
+
+// HeadFunc registers a standard http.HandlerFunc for HEAD requests.
+func (r *Router) HeadFunc(pattern string, fn http.HandlerFunc) { r.group.HeadFunc(pattern, fn) }
+
+// Options registers an error-returning handler for OPTIONS requests.
+func (r *Router) Options(pattern string, fn HandlerFunc) { r.group.Options(pattern, fn) }
+
+// OptionsFunc registers a standard http.HandlerFunc for OPTIONS requests.
+func (r *Router) OptionsFunc(pattern string, fn http.HandlerFunc) { r.group.OptionsFunc(pattern, fn) }
 
 // Handle registers an http.Handler for the given pattern.
 func (r *Router) Handle(pattern string, handler http.Handler) { r.group.Handle(pattern, handler) }
