@@ -93,19 +93,23 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // probeWriter intercepts WriteHeader calls to detect 404/405 from ServeMux.
-// If the status is 404 or 405 and no user handler has written to the body,
+// If the status is 404 or 405 and no user handler has been matched,
 // it suppresses the write so the router's ErrorHandler can produce a consistent response.
+//
+// Registered handlers set pw.matched = true via a thin wrapper so that intentional
+// 404/405 responses from user handlers are forwarded correctly.
 type probeWriter struct {
 	http.ResponseWriter
 	code        int
 	intercepted bool
 	wroteBody   bool
+	matched     bool // true when a registered handler was matched by ServeMux
 }
 
 func (pw *probeWriter) WriteHeader(code int) {
-	// Only intercept if this is the first write (ServeMux's own 404/405).
-	// If a user handler already wrote body bytes, the handler owns the response.
-	if !pw.wroteBody && (code == http.StatusNotFound || code == http.StatusMethodNotAllowed) {
+	// Only intercept unmatched routes (ServeMux's own 404/405).
+	// If a registered handler was matched, forward the status as-is.
+	if !pw.matched && !pw.wroteBody && (code == http.StatusNotFound || code == http.StatusMethodNotAllowed) {
 		pw.code = code
 		pw.intercepted = true
 		return
@@ -120,6 +124,18 @@ func (pw *probeWriter) Write(b []byte) (int, error) {
 	}
 	pw.wroteBody = true
 	return pw.ResponseWriter.Write(b)
+}
+
+// markMatched wraps a handler to set the matched flag on the probeWriter.
+// This lets probeWriter distinguish ServeMux's default 404/405 from
+// intentional 404/405 responses returned by user handlers.
+func markMatched(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if pw, ok := w.(*probeWriter); ok {
+			pw.matched = true
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // Get registers an error-returning handler for GET requests.
