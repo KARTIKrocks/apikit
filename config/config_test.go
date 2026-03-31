@@ -323,8 +323,8 @@ func TestLoad_EnvFileMissing_Required(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing required env file")
 	}
-	if !strings.Contains(err.Error(), "file not found") {
-		t.Errorf("error = %q, want it to contain 'file not found'", err.Error())
+	if !strings.Contains(err.Error(), "cannot open file") {
+		t.Errorf("error = %q, want it to contain 'cannot open file'", err.Error())
 	}
 }
 
