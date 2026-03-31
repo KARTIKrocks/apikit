@@ -3,6 +3,7 @@ package dbx
 import (
 	"context"
 	"database/sql"
+	"sync/atomic"
 
 	"github.com/KARTIKrocks/apikit/errors"
 )
@@ -15,16 +16,16 @@ type DB interface {
 }
 
 // defaultDB is the package-level connection set by SetDefault.
-var defaultDB DB
+var defaultDB atomic.Value // stores DB
 
 // SetDefault sets the default database connection used by all
 // package-level functions (QueryAll, QueryOne, Exec, etc.).
-// It must be called once during application startup, before any
-// queries are executed. It is not safe for concurrent use.
+// It should be called once during application startup, before any
+// queries are executed. It is safe for concurrent use.
 //
 //	dbx.SetDefault(db) // *sql.DB
 func SetDefault(db DB) {
-	defaultDB = db
+	defaultDB.Store(db)
 }
 
 // txKey is the context key for transaction override.
@@ -49,8 +50,8 @@ func conn(ctx context.Context) (DB, error) {
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
 		return tx, nil
 	}
-	if defaultDB != nil {
-		return defaultDB, nil
+	if db, ok := defaultDB.Load().(DB); ok && db != nil {
+		return db, nil
 	}
 	return nil, errors.Internal("dbx: no default connection set; call dbx.SetDefault(db) at startup")
 }

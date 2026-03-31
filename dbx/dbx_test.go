@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/KARTIKrocks/apikit/errors"
@@ -368,17 +369,27 @@ func (r mockExecResult) RowsAffected() (int64, error) { return r.affected, nil }
 
 // setMockDefault sets a mock as the default and returns a cleanup function.
 func setMockDefault(m *mockDB) func() {
-	old := defaultDB
+	old := defaultDB.Load()
 	SetDefault(m)
-	return func() { defaultDB = old }
+	return func() {
+		if old != nil {
+			defaultDB.Store(old)
+		} else {
+			defaultDB = atomic.Value{}
+		}
+	}
 }
 
 // --- conn.go tests ---
 
 func TestConn_NoDefault(t *testing.T) {
-	old := defaultDB
-	defaultDB = nil
-	defer func() { defaultDB = old }()
+	old := defaultDB.Load()
+	defaultDB = atomic.Value{} // clear
+	defer func() {
+		if old != nil {
+			defaultDB.Store(old)
+		}
+	}()
 
 	_, err := Exec(context.Background(), "SELECT 1")
 	if err == nil {
