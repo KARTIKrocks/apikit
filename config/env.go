@@ -18,7 +18,7 @@ func loadEnvFile(path string, required bool) (map[string]string, error) {
 		if os.IsNotExist(err) && !required {
 			return nil, nil
 		}
-		return nil, errors.BadRequest("config: file not found: " + path)
+		return nil, errors.Internal("config: cannot open file: " + path)
 	}
 	defer func() { _ = f.Close() }()
 

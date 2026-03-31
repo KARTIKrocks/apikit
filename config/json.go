@@ -19,12 +19,12 @@ func loadJSONFile(path string, required bool) (map[string]string, error) {
 		if os.IsNotExist(err) && !required {
 			return nil, nil
 		}
-		return nil, errors.BadRequest("config: file not found: " + path)
+		return nil, errors.Internal("config: cannot open file: " + path)
 	}
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, errors.BadRequest(fmt.Sprintf("config: invalid JSON in %s: %v", path, err))
+		return nil, errors.Internal(fmt.Sprintf("config: invalid JSON in %s: %v", path, err))
 	}
 
 	result := make(map[string]string)
