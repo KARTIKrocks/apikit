@@ -21,7 +21,6 @@ const (
 	CodeRequestTooLarge     = "REQUEST_TOO_LARGE"
 	CodeUnsupportedMedia    = "UNSUPPORTED_MEDIA_TYPE"
 	CodeUnprocessable       = "UNPROCESSABLE_ENTITY"
-	CodeTooManyRequests     = "TOO_MANY_REQUESTS"
 	CodeInvalidCredentials  = "INVALID_CREDENTIALS"
 	CodeTokenExpired        = "TOKEN_EXPIRED"
 	CodeTokenInvalid        = "TOKEN_INVALID"
@@ -61,7 +60,6 @@ var codeStatusMap = map[string]int{
 	CodeRequestTooLarge:     http.StatusRequestEntityTooLarge,
 	CodeUnsupportedMedia:    http.StatusUnsupportedMediaType,
 	CodeUnprocessable:       http.StatusUnprocessableEntity,
-	CodeTooManyRequests:     http.StatusTooManyRequests,
 	CodeInvalidCredentials:  http.StatusUnauthorized,
 	CodeTokenExpired:        http.StatusUnauthorized,
 	CodeTokenInvalid:        http.StatusUnauthorized,
