@@ -64,6 +64,10 @@ func (e *Error) Unwrap() error {
 
 // Is reports whether target matches this error's Code.
 // This allows errors.Is(err, ErrNotFound) to work even when messages differ.
+//
+// Note: matching is based solely on the Code field, so errors.Is is symmetric
+// for two *Error values with the same Code — errors.Is(a, b) and errors.Is(b, a)
+// both return true when a.Code == b.Code, regardless of which is the sentinel.
 func (e *Error) Is(target error) bool {
 	t, ok := target.(*Error)
 	if !ok {
@@ -105,9 +109,13 @@ func (e *Error) WithField(field, message string) *Error {
 }
 
 // WithFields sets multiple field errors on a copy of the error.
+// The map is copied to prevent external mutation.
 func (e *Error) WithFields(fields map[string]string) *Error {
 	cp := e.clone()
-	cp.Fields = fields
+	cp.Fields = make(map[string]string, len(fields))
+	for k, v := range fields {
+		cp.Fields[k] = v
+	}
 	return cp
 }
 
@@ -123,9 +131,13 @@ func (e *Error) WithDetail(key string, value any) *Error {
 }
 
 // WithDetails sets the details map on a copy of the error.
+// The map is copied to prevent external mutation.
 func (e *Error) WithDetails(details map[string]any) *Error {
 	cp := e.clone()
-	cp.Details = details
+	cp.Details = make(map[string]any, len(details))
+	for k, v := range details {
+		cp.Details[k] = v
+	}
 	return cp
 }
 

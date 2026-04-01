@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-04-01
+
+### Changed
+
+- **errors** — `WithFields` and `WithDetails` now copy the caller-supplied map before storing it, preventing external mutation of the error's internal state after the call
+
+### Removed
+
+- **errors** — `CodeTooManyRequests` constant and its `codeStatusMap` entry removed; rate-limit errors are owned by the `middleware` package
+
+### Fixed
+
+- **errors** — Added clarifying doc comment on `(*Error).Is` explaining that matching is code-based and symmetric between two `*Error` values with the same `Code`
+
 ## [0.12.3] - 2026-03-31
 
 ### Fixed
