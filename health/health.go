@@ -104,12 +104,7 @@ func (c *Checker) Check(ctx context.Context) Response {
 		}
 	}
 
-	type indexedResult struct {
-		index  int
-		result CheckResult
-	}
-
-	results := make([]indexedResult, len(c.checks))
+	results := make([]CheckResult, len(c.checks))
 	var wg sync.WaitGroup
 	wg.Add(len(c.checks))
 
@@ -133,7 +128,7 @@ func (c *Checker) Check(ctx context.Context) Response {
 				r.Error = err.Error()
 			}
 
-			results[idx] = indexedResult{index: idx, result: r}
+			results[idx] = r
 		}(i, nc)
 	}
 
@@ -143,9 +138,9 @@ func (c *Checker) Check(ctx context.Context) Response {
 	overall := StatusHealthy
 
 	for i, nc := range c.checks {
-		checks[nc.name] = results[i].result
+		checks[nc.name] = results[i]
 
-		if results[i].result.Status != StatusHealthy {
+		if results[i].Status != StatusHealthy {
 			if nc.critical {
 				overall = StatusUnhealthy
 			} else if overall != StatusUnhealthy {
