@@ -168,6 +168,7 @@ func (s *Server) Start() error {
 	// Wait for signal or programmatic shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
 	select {
 	case sig := <-sigCh:
