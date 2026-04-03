@@ -41,6 +41,12 @@ func WithCircuitBreaker(threshold int, timeout time.Duration) Option {
 	}
 }
 
+// WithMaxResponseBody sets the maximum response body size in bytes.
+// Responses larger than this are rejected. Default: 10 MB.
+func WithMaxResponseBody(n int64) Option {
+	return func(c *Client) { c.maxResponseBody = n }
+}
+
 // WithTransport sets the HTTP transport.
 func WithTransport(t http.RoundTripper) Option {
 	return func(c *Client) { c.transport = t }

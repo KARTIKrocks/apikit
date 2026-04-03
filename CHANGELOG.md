@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-04-03
+
+### Added
+
+- **httpclient** — `WithMaxResponseBody(n int64)` option to configure the maximum allowed response body size (default 10 MB via `DefaultMaxResponseBody`)
+- **httpclient** — Response reads in `executeRequest` are now capped with `io.LimitReader`; responses exceeding the limit return an error instead of allocating unbounded memory
+
 ## [0.13.1] - 2026-04-02
 
 ### Fixed

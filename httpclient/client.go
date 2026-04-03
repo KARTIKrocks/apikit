@@ -37,25 +37,30 @@ type Client struct {
 	mu         sync.RWMutex
 
 	// config fields
-	timeout       time.Duration
-	maxRetries    int
-	retryDelay    time.Duration
-	maxRetryDelay time.Duration
-	logger        *slog.Logger
-	cb            *CircuitBreaker
-	transport     http.RoundTripper
+	timeout         time.Duration
+	maxRetries      int
+	retryDelay      time.Duration
+	maxRetryDelay   time.Duration
+	maxResponseBody int64
+	logger          *slog.Logger
+	cb              *CircuitBreaker
+	transport       http.RoundTripper
 }
+
+// DefaultMaxResponseBody is the default maximum response body size (10 MB).
+const DefaultMaxResponseBody = 10 << 20
 
 // New creates a new HTTP client with the given base URL and options.
 func New(baseURL string, opts ...Option) *Client {
 	c := &Client{
-		baseURL:       baseURL,
-		headers:       make(map[string]string),
-		timeout:       30 * time.Second,
-		maxRetries:    3,
-		retryDelay:    time.Second,
-		maxRetryDelay: 10 * time.Second,
-		logger:        slog.Default(),
+		baseURL:         baseURL,
+		headers:         make(map[string]string),
+		timeout:         30 * time.Second,
+		maxRetries:      3,
+		retryDelay:      time.Second,
+		maxRetryDelay:   10 * time.Second,
+		maxResponseBody: DefaultMaxResponseBody,
+		logger:          slog.Default(),
 	}
 
 	for _, opt := range opts {
@@ -239,9 +244,16 @@ func (c *Client) executeRequest(ctx context.Context, method, path string, body a
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	responseBody, err := io.ReadAll(resp.Body)
+	maxBody := c.maxResponseBody
+	if maxBody <= 0 {
+		maxBody = DefaultMaxResponseBody
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if int64(len(responseBody)) > maxBody {
+		return nil, fmt.Errorf("response body exceeds maximum size of %d bytes", maxBody)
 	}
 
 	response := &Response{
