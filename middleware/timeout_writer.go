@@ -33,3 +33,21 @@ func (tw *timeoutWriter) Write(b []byte) (int, error) {
 	tw.written = true
 	return tw.ResponseWriter.Write(b)
 }
+
+// Unwrap returns the underlying ResponseWriter.
+// This is needed for http.Flusher, http.Hijacker, etc.
+func (tw *timeoutWriter) Unwrap() http.ResponseWriter {
+	return tw.ResponseWriter
+}
+
+// Flush implements http.Flusher if the underlying writer supports it.
+func (tw *timeoutWriter) Flush() {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.timedOut {
+		return
+	}
+	if f, ok := tw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

@@ -73,7 +73,7 @@ func RateLimit(cfg RateLimitConfig) Middleware {
 		cfg.KeyFunc = makeKeyFunc(cfg.TrustProxy)
 	}
 	if cfg.Limiter == nil {
-		cfg.Limiter = NewTokenBucket(cfg.Rate, cfg.Window)
+		cfg.Limiter = NewFixedWindow(cfg.Rate, cfg.Window)
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -115,10 +115,12 @@ func makeKeyFunc(trustProxy bool) func(r *http.Request) string {
 	}
 }
 
-// --- In-memory token bucket implementation ---
+// --- In-memory fixed-window implementation ---
 
-// TokenBucket implements a simple in-memory token bucket rate limiter.
-type TokenBucket struct {
+// FixedWindow implements a simple in-memory fixed-window rate limiter.
+// Each client key gets `rate` requests per `window`. The quota resets fully
+// when the window expires.
+type FixedWindow struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
 	rate    int
@@ -131,10 +133,10 @@ type bucket struct {
 	lastReset time.Time
 }
 
-// NewTokenBucket creates a new in-memory token bucket rate limiter.
+// NewFixedWindow creates a new in-memory fixed-window rate limiter.
 // Call Stop() when the limiter is no longer needed to release the cleanup goroutine.
-func NewTokenBucket(rate int, window time.Duration) *TokenBucket {
-	tb := &TokenBucket{
+func NewFixedWindow(rate int, window time.Duration) *FixedWindow {
+	tb := &FixedWindow{
 		buckets: make(map[string]*bucket),
 		rate:    rate,
 		window:  window,
@@ -148,13 +150,13 @@ func NewTokenBucket(rate int, window time.Duration) *TokenBucket {
 }
 
 // Stop terminates the background cleanup goroutine.
-// The TokenBucket should not be used after calling Stop.
-func (tb *TokenBucket) Stop() {
+// The limiter should not be used after calling Stop.
+func (tb *FixedWindow) Stop() {
 	close(tb.stop)
 }
 
 // Allow checks if a request is allowed for the given key.
-func (tb *TokenBucket) Allow(key string) bool {
+func (tb *FixedWindow) Allow(key string) bool {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 
@@ -178,7 +180,7 @@ func (tb *TokenBucket) Allow(key string) bool {
 }
 
 // cleanup periodically removes expired buckets.
-func (tb *TokenBucket) cleanup() {
+func (tb *FixedWindow) cleanup() {
 	ticker := time.NewTicker(tb.window * 2)
 	defer ticker.Stop()
 
