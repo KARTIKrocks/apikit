@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-04-04
+
+### Changed
+
+- **middleware** — Renamed `TokenBucket` → `FixedWindow` and `NewTokenBucket` → `NewFixedWindow` to accurately reflect the fixed-window counter algorithm; default limiter in `RateLimit()` updated accordingly
+
+### Added
+
+- **middleware** — `timeoutWriter.Unwrap()` returns the underlying `http.ResponseWriter`, enabling `http.Flusher`/`http.Hijacker` detection via `http.ResponseController`
+- **middleware** — `timeoutWriter.Flush()` implements `http.Flusher` with timeout-aware guarding, allowing SSE and chunked responses through the timeout middleware
+- **middleware** — Doc comment on `Timeout` clarifying goroutine leak behavior when a handler does not respect context cancellation
+
+### Removed
+
+- **middleware** — `TokenBucket` and `NewTokenBucket` (replaced by `FixedWindow` and `NewFixedWindow`)
+
 ## [0.14.1] - 2026-04-04
 
 ### Changed

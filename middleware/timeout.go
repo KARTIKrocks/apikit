@@ -12,6 +12,11 @@ import (
 // Timeout wraps each request with a context deadline.
 // If the handler doesn't complete within the timeout, a 504 response is sent.
 //
+// Note: when a timeout fires, the handler goroutine is NOT killed — Go has no way
+// to forcibly stop a goroutine. The context is cancelled, so well-behaved handlers
+// that check ctx.Done() will exit promptly. Handlers that block on I/O without
+// respecting context may leak the goroutine until the I/O completes.
+//
 //	mux.Handle("/slow", middleware.Timeout(5*time.Second)(handler))
 func Timeout(duration time.Duration) Middleware {
 	return func(next http.Handler) http.Handler {
