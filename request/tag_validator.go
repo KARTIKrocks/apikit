@@ -9,10 +9,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/KARTIKrocks/apikit/errors"
 )
+
+// regexpCache caches compiled regular expressions to avoid recompilation.
+var regexpCache sync.Map // string → *regexp.Regexp
 
 // uuidRegex matches standard UUID format (8-4-4-4-12 hex digits).
 var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -406,7 +410,15 @@ func IsValidUUID(s string) bool {
 }
 
 // MatchesRegexp checks whether s matches the given regexp pattern.
+// Compiled patterns are cached to avoid recompilation on repeated calls.
 func MatchesRegexp(s, pattern string) bool {
-	matched, err := regexp.MatchString(pattern, s)
-	return err == nil && matched
+	re, ok := regexpCache.Load(pattern)
+	if !ok {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			return false
+		}
+		re, _ = regexpCache.LoadOrStore(pattern, compiled)
+	}
+	return re.(*regexp.Regexp).MatchString(s)
 }

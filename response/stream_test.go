@@ -130,8 +130,8 @@ func TestJSONP_WithCallback(t *testing.T) {
 		t.Errorf("content-type: expected application/javascript, got %q", ct)
 	}
 	body := w.Body.String()
-	if !strings.HasPrefix(body, "myFunc(") {
-		t.Errorf("expected body to start with myFunc(, got %q", body)
+	if !strings.HasPrefix(body, "/**/myFunc(") {
+		t.Errorf("expected body to start with /**/myFunc(, got %q", body)
 	}
 	if !strings.HasSuffix(body, ");") {
 		t.Errorf("expected body to end with );, got %q", body)

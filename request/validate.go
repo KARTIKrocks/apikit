@@ -1,7 +1,6 @@
 package request
 
 import (
-	"regexp"
 	"slices"
 
 	"github.com/KARTIKrocks/apikit/errors"
@@ -145,12 +144,12 @@ func (v *Validation) UUID(field, value string) {
 }
 
 // MatchesPattern validates that a string matches the given regex pattern.
+// Compiled patterns are cached to avoid recompilation on repeated calls.
 func (v *Validation) MatchesPattern(field, value, pattern, message string) {
 	if value == "" {
 		return
 	}
-	matched, err := regexp.MatchString(pattern, value)
-	if err != nil || !matched {
+	if !MatchesRegexp(value, pattern) {
 		v.AddError(field, message)
 	}
 }
