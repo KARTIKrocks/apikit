@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/KARTIKrocks/apikit/errors"
@@ -68,17 +69,23 @@ type TypedEnvelope[T any] struct {
 // --- Core write function ---
 
 // write is the internal function that writes the response.
-// All public functions ultimately call this.
+// All public functions ultimately call this. It marshals to a buffer first
+// so that the Content-Length header can be set, improving client behavior.
 func write(w http.ResponseWriter, statusCode int, response any) {
+	b, err := json.Marshal(response)
+	if err != nil {
+		slog.Error("failed to encode JSON response", "error", err)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Length", strconv.Itoa(len(b)+1)) // +1 for newline
 	w.WriteHeader(statusCode)
-
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		// Headers and status are already sent — we cannot write a new status code.
-		// Log the error for operators; the client will see a truncated/malformed response.
-		slog.Error("failed to encode JSON response", "error", err)
-	}
+	_, _ = w.Write(b)
+	_, _ = w.Write([]byte("\n"))
 }
 
 // --- Success responses ---

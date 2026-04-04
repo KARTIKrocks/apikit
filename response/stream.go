@@ -10,10 +10,14 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/KARTIKrocks/apikit/errors"
 )
+
+// validJSONPCallback matches safe JSONP callback names: identifiers with optional dots.
+var validJSONPCallback = regexp.MustCompile(`^[a-zA-Z_$][a-zA-Z0-9_$.]*$`)
 
 // Stream provides Server-Sent Events (SSE) streaming.
 //
@@ -176,6 +180,7 @@ func PureJSON(w http.ResponseWriter, statusCode int, data any) {
 // JSONP writes a JSONP response for cross-domain callbacks.
 // The callback name is read from the "callback" query parameter.
 // If no callback is provided, it falls back to a regular JSON response.
+// The callback name is validated to prevent XSS injection.
 func JSONP(w http.ResponseWriter, r *http.Request, statusCode int, data any) {
 	callback := r.URL.Query().Get("callback")
 	if callback == "" {
@@ -183,6 +188,11 @@ func JSONP(w http.ResponseWriter, r *http.Request, statusCode int, data any) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(data)
+		return
+	}
+
+	if !validJSONPCallback.MatchString(callback) {
+		BadRequest(w, "Invalid JSONP callback name")
 		return
 	}
 
@@ -196,7 +206,7 @@ func JSONP(w http.ResponseWriter, r *http.Request, statusCode int, data any) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = fmt.Fprintf(w, "%s(%s);", callback, b)
+	_, _ = fmt.Fprintf(w, "/**/%s(%s);", callback, b)
 }
 
 // Reader streams data from an io.Reader to the response.

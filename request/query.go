@@ -171,6 +171,10 @@ func (q *Query) Has(key string) bool {
 }
 
 // --- Standalone helpers (for when you don't want to create a Query object) ---
+//
+// Note: each standalone helper calls QueryFrom(r), which re-parses r.URL.RawQuery.
+// When reading multiple query parameters from the same request, prefer creating a
+// single Query via QueryFrom(r) and reusing it.
 
 // QueryString returns a query parameter as a string.
 func QueryString(r *http.Request, key, defaultVal string) string {
