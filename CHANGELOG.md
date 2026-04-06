@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-04-06
+
+### Added
+
+- **router** — Named routes via `RouteEntry.Name(name)` and `Router.URL(name, params...)` for reverse URL generation with `{param}` and `{param...}` placeholder substitution
+- **router** — Route introspection: `Router.Routes()` returns a snapshot of all registered `RouteInfo` entries; `Router.Walk(fn)` iterates with early-exit support
+- **router** — `RouteInfo.HandlerName` captures the original handler's function name via `runtime.FuncForPC` for debugging and documentation
+- **router** — Parameter constraints: `ValidateParams(handler, constraints...)` wraps a handler with path-parameter validation; built-in constraint constructors `Int`, `UUID`, `Regex`, `OneOf`
+- **router** — `With(middleware...)` returns a child group for per-route inline middleware without affecting sibling routes
+- **router** — `Route(prefix, fn, middleware...)` for inline sub-routing — creates a child group, calls `fn` to register routes, and returns the group for further use
+- **router** — `Mount(prefix, handler)` attaches an `http.Handler` (or `*Router`) at a prefix with `http.StripPrefix`; sub-router routes and named routes are merged into the parent's route table
+- **router** — `Static(prefix, dir)` serves files from a filesystem directory; `File(pattern, filePath)` serves a single file for GET requests
+- **router** — `WithNotFound(handler)` and `WithMethodNotAllowed(handler)` options for custom 404/405 handlers, taking precedence over the `ErrorHandler`
+- **router** — `WithStripSlash()` silently removes trailing slashes before routing; `WithRedirectSlash()` sends 301 redirects (mutually exclusive, panics if both set)
+
+### Changed
+
+- **router** — All method helpers (`Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options` and their `Func` variants) and `Handle`/`HandleFunc` now return `*RouteEntry` for optional `.Name()` chaining
+- **router** — `register()` accepts an additional `origFn` parameter to capture the original handler name before middleware wrapping
+
 ## [0.15.0] - 2026-04-04
 
 ### Changed

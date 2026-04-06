@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/KARTIKrocks/apikit/errors"
@@ -34,7 +36,7 @@ func doRequest(handler http.Handler, method, path string) *httptest.ResponseReco
 
 func TestMethodHelpers(t *testing.T) {
 	methods := []struct {
-		register func(r *Router, pattern string, fn HandlerFunc)
+		register func(r *Router, pattern string, fn HandlerFunc) *RouteEntry
 		method   string
 	}{
 		{(*Router).Get, "GET"},
@@ -789,5 +791,653 @@ func TestGroupHeadAndOptions(t *testing.T) {
 	}
 	if rec.Header().Get("X-MW") != "yes" {
 		t.Error("Group OPTIONS: expected middleware applied")
+	}
+}
+
+// ─── With() — Per-Route Inline Middleware ──────────────────────────────────
+
+func TestWithBasic(t *testing.T) {
+	r := New()
+	r.With(headerMiddleware("X-Auth", "yes")).Get("/admin", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "admin")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/admin")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-Auth") != "yes" {
+		t.Error("expected X-Auth=yes from With middleware")
+	}
+	if rec.Body.String() != "admin" {
+		t.Errorf("expected body 'admin', got %q", rec.Body.String())
+	}
+}
+
+func TestWithDoesNotAffectSiblingRoutes(t *testing.T) {
+	r := New()
+	r.With(headerMiddleware("X-Auth", "yes")).Get("/admin", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+	r.Get("/public", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/public")
+	if rec.Header().Get("X-Auth") != "" {
+		t.Error("With middleware should not apply to sibling routes")
+	}
+}
+
+func TestWithOnGroup(t *testing.T) {
+	r := New()
+	api := r.Group("/api", headerMiddleware("X-Group", "api"))
+	api.With(headerMiddleware("X-Auth", "yes")).Get("/secret", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "secret")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/api/secret")
+	if rec.Header().Get("X-Group") != "api" {
+		t.Error("expected group middleware X-Group=api")
+	}
+	if rec.Header().Get("X-Auth") != "yes" {
+		t.Error("expected With middleware X-Auth=yes")
+	}
+}
+
+func TestWithPreservesMiddlewareOrdering(t *testing.T) {
+	r := New()
+	r.Use(headerMiddleware("X-Order", "root"))
+	r.With(headerMiddleware("X-Order", "with")).Get("/test", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/test")
+	values := rec.Header().Values("X-Order")
+	if len(values) != 2 {
+		t.Fatalf("expected 2 X-Order values, got %d: %v", len(values), values)
+	}
+	if values[0] != "root" || values[1] != "with" {
+		t.Errorf("expected [root, with], got %v", values)
+	}
+}
+
+func TestWithChained(t *testing.T) {
+	r := New()
+	r.With(headerMiddleware("X-A", "a")).With(headerMiddleware("X-B", "b")).Get("/test", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/test")
+	if rec.Header().Get("X-A") != "a" {
+		t.Error("expected X-A=a")
+	}
+	if rec.Header().Get("X-B") != "b" {
+		t.Error("expected X-B=b")
+	}
+}
+
+func TestWithNamedRoute(t *testing.T) {
+	r := New()
+	r.With(headerMiddleware("X-Auth", "yes")).Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	}).Name("get-user")
+
+	got := r.URL("get-user", "id", "42")
+	if got != "/users/42" {
+		t.Errorf("expected /users/42, got %q", got)
+	}
+}
+
+// ─── Route() — Inline Sub-Routing ─────────────────────────────────────────
+
+func TestRouteBasic(t *testing.T) {
+	r := New()
+	r.Route("/users", func(sub *Group) {
+		sub.Get("/", func(w http.ResponseWriter, req *http.Request) error {
+			fmt.Fprint(w, "list")
+			return nil
+		})
+		sub.Get("/{id}", func(w http.ResponseWriter, req *http.Request) error {
+			fmt.Fprintf(w, "get:%s", req.PathValue("id"))
+			return nil
+		})
+		sub.Post("/", func(w http.ResponseWriter, req *http.Request) error {
+			fmt.Fprint(w, "create")
+			return nil
+		})
+	})
+
+	tests := []struct {
+		method, path, body string
+	}{
+		{"GET", "/users/", "list"},
+		{"GET", "/users/42", "get:42"},
+		{"POST", "/users/", "create"},
+	}
+	for _, tt := range tests {
+		rec := doRequest(r, tt.method, tt.path)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s %s: expected 200, got %d", tt.method, tt.path, rec.Code)
+		}
+		if rec.Body.String() != tt.body {
+			t.Errorf("%s %s: expected body %q, got %q", tt.method, tt.path, tt.body, rec.Body.String())
+		}
+	}
+}
+
+func TestRouteNested(t *testing.T) {
+	r := New()
+	r.Route("/api", func(api *Group) {
+		api.Route("/v1", func(v1 *Group) {
+			v1.Get("/items", func(w http.ResponseWriter, req *http.Request) error {
+				fmt.Fprint(w, "items-v1")
+				return nil
+			})
+		})
+	})
+
+	rec := doRequest(r, "GET", "/api/v1/items")
+	if rec.Body.String() != "items-v1" {
+		t.Errorf("expected body 'items-v1', got %q", rec.Body.String())
+	}
+}
+
+func TestRouteWithMiddleware(t *testing.T) {
+	r := New()
+	r.Route("/admin", func(sub *Group) {
+		sub.Get("/dashboard", func(w http.ResponseWriter, req *http.Request) error {
+			fmt.Fprint(w, "dashboard")
+			return nil
+		})
+	}, headerMiddleware("X-Admin", "yes"))
+
+	rec := doRequest(r, "GET", "/admin/dashboard")
+	if rec.Header().Get("X-Admin") != "yes" {
+		t.Error("expected middleware to be applied via Route")
+	}
+}
+
+func TestRouteReturnsGroup(t *testing.T) {
+	r := New()
+	g := r.Route("/api", func(sub *Group) {
+		sub.Get("/data", func(w http.ResponseWriter, req *http.Request) error {
+			return nil
+		})
+	})
+
+	// Should be able to add more routes to the returned group.
+	g.Get("/extra", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "extra")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/api/extra")
+	if rec.Body.String() != "extra" {
+		t.Errorf("expected body 'extra', got %q", rec.Body.String())
+	}
+}
+
+func TestRouteWithNamedRoutes(t *testing.T) {
+	r := New()
+	r.Route("/users", func(sub *Group) {
+		sub.Get("/{id}", func(w http.ResponseWriter, req *http.Request) error {
+			return nil
+		}).Name("get-user")
+	})
+
+	got := r.URL("get-user", "id", "5")
+	if got != "/users/5" {
+		t.Errorf("expected /users/5, got %q", got)
+	}
+}
+
+// ─── Custom NotFound / MethodNotAllowed Handlers ──────────────────────────
+
+func TestCustomNotFoundHandler(t *testing.T) {
+	r := New(WithNotFound(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, "custom 404")
+	})))
+	r.Get("/exists", func(w http.ResponseWriter, req *http.Request) error { return nil })
+
+	rec := doRequest(r, "GET", "/nope")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+	if rec.Body.String() != "custom 404" {
+		t.Errorf("expected 'custom 404', got %q", rec.Body.String())
+	}
+}
+
+func TestCustomMethodNotAllowedHandler(t *testing.T) {
+	r := New(WithMethodNotAllowed(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		fmt.Fprint(w, "custom 405")
+	})))
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) error { return nil })
+
+	rec := doRequest(r, "POST", "/users")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+	if rec.Body.String() != "custom 405" {
+		t.Errorf("expected 'custom 405', got %q", rec.Body.String())
+	}
+}
+
+func TestNotFoundFallsBackToErrorHandler(t *testing.T) {
+	// No WithNotFound set — should use DefaultErrorHandler (existing behavior).
+	r := New()
+	r.Get("/exists", func(w http.ResponseWriter, req *http.Request) error { return nil })
+
+	rec := doRequest(r, "GET", "/nope")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+	var env errorEnvelope
+	json.NewDecoder(rec.Body).Decode(&env)
+	if env.Error.Code != "NOT_FOUND" {
+		t.Errorf("expected NOT_FOUND, got %s", env.Error.Code)
+	}
+}
+
+func TestCustomNotFoundTakesPrecedenceOverErrorHandler(t *testing.T) {
+	var errorHandlerCalled bool
+	r := New(
+		WithErrorHandler(func(w http.ResponseWriter, req *http.Request, err error) {
+			errorHandlerCalled = true
+			DefaultErrorHandler(w, req, err)
+		}),
+		WithNotFound(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, "custom wins")
+		})),
+	)
+	r.Get("/exists", func(w http.ResponseWriter, req *http.Request) error { return nil })
+
+	rec := doRequest(r, "GET", "/nope")
+	if errorHandlerCalled {
+		t.Error("ErrorHandler should not be called when NotFoundHandler is set")
+	}
+	if rec.Body.String() != "custom wins" {
+		t.Errorf("expected 'custom wins', got %q", rec.Body.String())
+	}
+}
+
+// ─── Trailing Slash Handling ──────────────────────────────────────────────
+
+func TestStripSlash(t *testing.T) {
+	r := New(WithStripSlash())
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "users")
+		return nil
+	})
+
+	// /users/ should match /users after stripping.
+	rec := doRequest(r, "GET", "/users/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "users" {
+		t.Errorf("expected body 'users', got %q", rec.Body.String())
+	}
+}
+
+func TestStripSlashRootUnaffected(t *testing.T) {
+	r := New(WithStripSlash())
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "root")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "root" {
+		t.Errorf("expected body 'root', got %q", rec.Body.String())
+	}
+}
+
+func TestRedirectSlash(t *testing.T) {
+	r := New(WithRedirectSlash())
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "users")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/users/")
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/users" {
+		t.Errorf("expected redirect to /users, got %q", loc)
+	}
+}
+
+func TestRedirectSlashPreservesQuery(t *testing.T) {
+	r := New(WithRedirectSlash())
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) error { return nil })
+
+	req := httptest.NewRequest("GET", "/users/?page=2&limit=10", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/users?page=2&limit=10" {
+		t.Errorf("expected redirect to /users?page=2&limit=10, got %q", loc)
+	}
+}
+
+func TestRedirectSlashRootUnaffected(t *testing.T) {
+	r := New(WithRedirectSlash())
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "root")
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestStripSlashAndRedirectSlashPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("expected panic when both WithStripSlash and WithRedirectSlash are set")
+		}
+	}()
+	New(WithStripSlash(), WithRedirectSlash())
+}
+
+func TestStripSlashDoubleSlashPath(t *testing.T) {
+	r := New(WithStripSlash())
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "root")
+		return nil
+	})
+
+	// "//" should be trimmed to "/" not "".
+	rec := doRequest(r, "GET", "//")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "root" {
+		t.Errorf("expected body 'root', got %q", rec.Body.String())
+	}
+}
+
+func TestRedirectSlashDoubleSlashPath(t *testing.T) {
+	r := New(WithRedirectSlash())
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) error { return nil })
+
+	rec := doRequest(r, "GET", "//")
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/" {
+		t.Errorf("expected redirect to /, got %q", loc)
+	}
+}
+
+// ─── Mount() — Mount Sub-Routers ─────────────────────────────────────────
+
+func TestMountHTTPHandler(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /hello", func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprint(w, "hello from sub")
+	})
+
+	r := New()
+	r.Mount("/sub", mux)
+
+	rec := doRequest(r, "GET", "/sub/hello")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "hello from sub" {
+		t.Errorf("expected 'hello from sub', got %q", rec.Body.String())
+	}
+}
+
+func TestMountRouter(t *testing.T) {
+	admin := New()
+	admin.Get("/stats", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "stats")
+		return nil
+	})
+	admin.Get("/users", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "admin-users")
+		return nil
+	})
+
+	r := New()
+	r.Mount("/admin", admin)
+
+	tests := []struct {
+		path, body string
+	}{
+		{"/admin/stats", "stats"},
+		{"/admin/users", "admin-users"},
+	}
+	for _, tt := range tests {
+		rec := doRequest(r, "GET", tt.path)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", tt.path, rec.Code)
+		}
+		if rec.Body.String() != tt.body {
+			t.Errorf("%s: expected body %q, got %q", tt.path, tt.body, rec.Body.String())
+		}
+	}
+}
+
+func TestMountWithGroupMiddleware(t *testing.T) {
+	sub := New()
+	sub.Get("/data", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "data")
+		return nil
+	})
+
+	r := New()
+	api := r.Group("/api", headerMiddleware("X-MW", "applied"))
+	api.Mount("/sub", sub)
+
+	rec := doRequest(r, "GET", "/api/sub/data")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-MW") != "applied" {
+		t.Error("expected group middleware to be applied to mounted handler")
+	}
+}
+
+func TestMountRouteIntrospection(t *testing.T) {
+	sub := New()
+	sub.Get("/stats", func(w http.ResponseWriter, req *http.Request) error { return nil })
+	sub.Post("/stats", func(w http.ResponseWriter, req *http.Request) error { return nil })
+
+	r := New()
+	r.Mount("/admin", sub)
+
+	routes := r.Routes()
+	if len(routes) != 2 {
+		t.Fatalf("expected 2 routes from mounted router, got %d", len(routes))
+	}
+	if routes[0].Pattern != "/admin/stats" {
+		t.Errorf("expected /admin/stats, got %q", routes[0].Pattern)
+	}
+	if routes[0].Method != "GET" {
+		t.Errorf("expected GET, got %q", routes[0].Method)
+	}
+	if routes[1].Method != "POST" {
+		t.Errorf("expected POST, got %q", routes[1].Method)
+	}
+}
+
+func TestMountInGroup(t *testing.T) {
+	sub := New()
+	sub.Get("/items", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "items")
+		return nil
+	})
+
+	r := New()
+	api := r.Group("/api/v1")
+	api.Mount("/catalog", sub)
+
+	rec := doRequest(r, "GET", "/api/v1/catalog/items")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "items" {
+		t.Errorf("expected 'items', got %q", rec.Body.String())
+	}
+}
+
+func TestMountNamedRoutesPropagated(t *testing.T) {
+	sub := New()
+	sub.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	}).Name("get-user")
+
+	r := New()
+	r.Mount("/api", sub)
+
+	got := r.URL("get-user", "id", "42")
+	if got != "/api/users/42" {
+		t.Errorf("expected /api/users/42, got %q", got)
+	}
+}
+
+func TestMountMiddlewareSeesFullPath(t *testing.T) {
+	sub := New()
+	sub.Get("/data", func(w http.ResponseWriter, req *http.Request) error {
+		fmt.Fprint(w, "data")
+		return nil
+	})
+
+	var capturedPath string
+	pathCapture := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedPath = r.URL.Path
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	r := New()
+	api := r.Group("/api", pathCapture)
+	api.Mount("/sub", sub)
+
+	rec := doRequest(r, "GET", "/api/sub/data")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if capturedPath != "/api/sub/data" {
+		t.Errorf("middleware should see full path /api/sub/data, got %q", capturedPath)
+	}
+}
+
+// ─── Static() / File() — Static File Serving ─────────────────────────────
+
+func TestStaticServesFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "style.css"), []byte("body{}"), 0644)
+
+	r := New()
+	r.Static("/assets", dir)
+
+	rec := doRequest(r, "GET", "/assets/style.css")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "body{}" {
+		t.Errorf("expected 'body{}', got %q", rec.Body.String())
+	}
+}
+
+func TestStaticMissingFile(t *testing.T) {
+	dir := t.TempDir()
+
+	r := New()
+	r.Static("/assets", dir)
+
+	rec := doRequest(r, "GET", "/assets/missing.js")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing file, got %d", rec.Code)
+	}
+}
+
+func TestStaticWithGroupMiddleware(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.js"), []byte("alert(1)"), 0644)
+
+	r := New()
+	api := r.Group("/cdn", headerMiddleware("X-CDN", "yes"))
+	api.Static("/assets", dir)
+
+	rec := doRequest(r, "GET", "/cdn/assets/app.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-CDN") != "yes" {
+		t.Error("expected group middleware to be applied to static handler")
+	}
+}
+
+func TestStaticIntrospection(t *testing.T) {
+	dir := t.TempDir()
+	r := New()
+	r.Static("/assets", dir)
+
+	routes := r.Routes()
+	if len(routes) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(routes))
+	}
+	if routes[0].Method != "GET" {
+		t.Errorf("expected GET, got %q", routes[0].Method)
+	}
+	if routes[0].Pattern != "/assets/{file...}" {
+		t.Errorf("expected /assets/{file...}, got %q", routes[0].Pattern)
+	}
+}
+
+func TestFileSingle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "favicon.ico")
+	os.WriteFile(path, []byte("icon-data"), 0644)
+
+	r := New()
+	r.File("/favicon.ico", path)
+
+	rec := doRequest(r, "GET", "/favicon.ico")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "icon-data" {
+		t.Errorf("expected 'icon-data', got %q", rec.Body.String())
+	}
+}
+
+func TestFileInGroup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "robots.txt")
+	os.WriteFile(path, []byte("User-agent: *"), 0644)
+
+	r := New()
+	api := r.Group("/public")
+	api.File("/robots.txt", path)
+
+	rec := doRequest(r, "GET", "/public/robots.txt")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "User-agent: *" {
+		t.Errorf("expected 'User-agent: *', got %q", rec.Body.String())
 	}
 }

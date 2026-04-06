@@ -17,7 +17,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`response`** — Consistent JSON envelope, fluent builder, pagination helpers, SSE streaming, XML, JSONP, and more
 - **`middleware`** — Request ID, logging, panic recovery, CORS, rate limiting, auth, security headers, timeout
 - **`httpclient`** — HTTP client with retries, exponential backoff, circuit breaker, and `HTTPClient` interface for mocking
-- **`router`** — Route grouping with `.Get()`/`.Post()` method helpers, prefix groups, and per-group middleware on top of `http.ServeMux`
+- **`router`** — Route grouping with method helpers, named routes, URL generation, parameter constraints, sub-router mounting, static file serving, and trailing-slash handling on top of `http.ServeMux`
 - **`server`** — Graceful shutdown wrapper with signal handling, lifecycle hooks, and TLS support
 - **`health`** — Health check endpoint builder with dependency checks, timeouts, and liveness/readiness probes
 - **`config`** — Load configuration from env vars, `.env` files, and JSON files into typed structs with validation
@@ -375,6 +375,62 @@ admin.Delete("/users/{id}", deleteUser)
 
 // Handle/HandleFunc for http.Handler (e.g. file servers)
 api.Handle("GET /docs", http.FileServer(http.Dir("./docs")))
+
+// --- Named routes & URL generation ---
+r.Get("/users/{id}", getUser).Name("get-user")
+r.Get("/files/{path...}", serveFile).Name("files")
+
+url := r.URL("get-user", "id", "42")       // "/users/42"
+url = r.URL("files", "path", "docs/readme") // "/files/docs/readme"
+
+// --- Inline sub-routing with Route() ---
+r.Route("/users", func(sub *router.Group) {
+    sub.Get("/", listUsers)
+    sub.Get("/{id}", getUser)
+    sub.Post("/", createUser)
+})
+
+// --- Per-route middleware with With() ---
+r.With(authMiddleware).Get("/admin", adminHandler)
+
+// --- Mount sub-routers ---
+adminRouter := router.New()
+adminRouter.Get("/stats", statsHandler)
+r.Mount("/admin", adminRouter) // routes & named routes are merged
+
+// --- Static files ---
+r.Static("/assets", "./public")        // serve directory
+r.File("/favicon.ico", "./favicon.ico") // serve single file
+
+// --- Parameter constraints ---
+r.Get("/users/{id}", router.ValidateParams(getUser,
+    router.Int("id"),
+))
+r.Get("/items/{slug}", router.ValidateParams(getItem,
+    router.Regex("slug", `^[a-z0-9-]+$`),
+))
+r.Get("/status/{s}", router.ValidateParams(getStatus,
+    router.OneOf("s", "active", "inactive", "pending"),
+))
+
+// --- Trailing slash handling ---
+r = router.New(router.WithStripSlash())    // "/users/" → "/users" (silent)
+r = router.New(router.WithRedirectSlash()) // "/users/" → 301 → "/users"
+
+// --- Custom 404/405 handlers ---
+r = router.New(
+    router.WithNotFound(custom404Handler),
+    router.WithMethodNotAllowed(custom405Handler),
+)
+
+// --- Route introspection ---
+for _, ri := range r.Routes() {
+    fmt.Printf("%s %s → %s\n", ri.Method, ri.Pattern, ri.HandlerName)
+}
+r.Walk(func(ri router.RouteInfo) error {
+    // ...
+    return nil
+})
 
 // Use with server package
 srv := server.New(r, server.WithAddr(":8080"))
