@@ -1,6 +1,7 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -16,96 +17,105 @@ type Group struct {
 }
 
 // Get registers an error-returning handler for GET requests.
-func (g *Group) Get(pattern string, fn HandlerFunc) {
-	g.register("GET", pattern, g.router.wrapError(fn))
+func (g *Group) Get(pattern string, fn HandlerFunc) *RouteEntry {
+	return g.register("GET", pattern, g.router.wrapError(fn), fn)
 }
 
 // GetFunc registers a standard http.HandlerFunc for GET requests.
-func (g *Group) GetFunc(pattern string, fn http.HandlerFunc) {
-	g.register("GET", pattern, fn)
+func (g *Group) GetFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.register("GET", pattern, fn, fn)
 }
 
 // Post registers an error-returning handler for POST requests.
-func (g *Group) Post(pattern string, fn HandlerFunc) {
-	g.register("POST", pattern, g.router.wrapError(fn))
+func (g *Group) Post(pattern string, fn HandlerFunc) *RouteEntry {
+	return g.register("POST", pattern, g.router.wrapError(fn), fn)
 }
 
 // PostFunc registers a standard http.HandlerFunc for POST requests.
-func (g *Group) PostFunc(pattern string, fn http.HandlerFunc) {
-	g.register("POST", pattern, fn)
+func (g *Group) PostFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.register("POST", pattern, fn, fn)
 }
 
 // Put registers an error-returning handler for PUT requests.
-func (g *Group) Put(pattern string, fn HandlerFunc) {
-	g.register("PUT", pattern, g.router.wrapError(fn))
+func (g *Group) Put(pattern string, fn HandlerFunc) *RouteEntry {
+	return g.register("PUT", pattern, g.router.wrapError(fn), fn)
 }
 
 // PutFunc registers a standard http.HandlerFunc for PUT requests.
-func (g *Group) PutFunc(pattern string, fn http.HandlerFunc) {
-	g.register("PUT", pattern, fn)
+func (g *Group) PutFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.register("PUT", pattern, fn, fn)
 }
 
 // Patch registers an error-returning handler for PATCH requests.
-func (g *Group) Patch(pattern string, fn HandlerFunc) {
-	g.register("PATCH", pattern, g.router.wrapError(fn))
+func (g *Group) Patch(pattern string, fn HandlerFunc) *RouteEntry {
+	return g.register("PATCH", pattern, g.router.wrapError(fn), fn)
 }
 
 // PatchFunc registers a standard http.HandlerFunc for PATCH requests.
-func (g *Group) PatchFunc(pattern string, fn http.HandlerFunc) {
-	g.register("PATCH", pattern, fn)
+func (g *Group) PatchFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.register("PATCH", pattern, fn, fn)
 }
 
 // Delete registers an error-returning handler for DELETE requests.
-func (g *Group) Delete(pattern string, fn HandlerFunc) {
-	g.register("DELETE", pattern, g.router.wrapError(fn))
+func (g *Group) Delete(pattern string, fn HandlerFunc) *RouteEntry {
+	return g.register("DELETE", pattern, g.router.wrapError(fn), fn)
 }
 
 // DeleteFunc registers a standard http.HandlerFunc for DELETE requests.
-func (g *Group) DeleteFunc(pattern string, fn http.HandlerFunc) {
-	g.register("DELETE", pattern, fn)
+func (g *Group) DeleteFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.register("DELETE", pattern, fn, fn)
 }
 
 // Head registers an error-returning handler for HEAD requests.
-func (g *Group) Head(pattern string, fn HandlerFunc) {
-	g.register("HEAD", pattern, g.router.wrapError(fn))
+func (g *Group) Head(pattern string, fn HandlerFunc) *RouteEntry {
+	return g.register("HEAD", pattern, g.router.wrapError(fn), fn)
 }
 
 // HeadFunc registers a standard http.HandlerFunc for HEAD requests.
-func (g *Group) HeadFunc(pattern string, fn http.HandlerFunc) {
-	g.register("HEAD", pattern, fn)
+func (g *Group) HeadFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.register("HEAD", pattern, fn, fn)
 }
 
 // Options registers an error-returning handler for OPTIONS requests.
-func (g *Group) Options(pattern string, fn HandlerFunc) {
-	g.register("OPTIONS", pattern, g.router.wrapError(fn))
+func (g *Group) Options(pattern string, fn HandlerFunc) *RouteEntry {
+	return g.register("OPTIONS", pattern, g.router.wrapError(fn), fn)
 }
 
 // OptionsFunc registers a standard http.HandlerFunc for OPTIONS requests.
-func (g *Group) OptionsFunc(pattern string, fn http.HandlerFunc) {
-	g.register("OPTIONS", pattern, fn)
+func (g *Group) OptionsFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.register("OPTIONS", pattern, fn, fn)
 }
 
 // Handle registers an http.Handler for the given pattern.
 // The pattern may include a method prefix (e.g. "GET /path").
-func (g *Group) Handle(pattern string, handler http.Handler) {
+func (g *Group) Handle(pattern string, handler http.Handler) *RouteEntry {
 	method, path := splitPattern(pattern)
-	fullPath := joinPath(g.fullPrefix(), path)
+	prefix, chain := g.resolve()
+	fullPath := joinPath(prefix, path)
 	fullPattern := fullPath
 	if method != "" {
 		fullPattern = method + " " + fullPath
 	}
 
-	chain := g.collectMiddleware()
+	origHandler := handler
 	if len(chain) > 0 {
 		handler = middleware.Chain(chain...)(handler)
 	}
 	g.router.mux.Handle(fullPattern, markMatched(handler))
+
+	idx := len(g.router.routes)
+	g.router.routes = append(g.router.routes, RouteInfo{
+		Method:      method,
+		Pattern:     fullPath,
+		HandlerName: handlerName(origHandler),
+	})
+	return &RouteEntry{router: g.router, index: idx}
 }
 
 // HandleFunc registers an http.HandlerFunc for the given pattern.
 // The pattern may include a method prefix (e.g. "GET /path").
-func (g *Group) HandleFunc(pattern string, fn http.HandlerFunc) {
-	g.Handle(pattern, fn)
+func (g *Group) HandleFunc(pattern string, fn http.HandlerFunc) *RouteEntry {
+	return g.Handle(pattern, fn)
 }
 
 // Use appends middleware to this group. Middleware added via Use only
@@ -124,52 +134,169 @@ func (g *Group) Group(prefix string, mw ...middleware.Middleware) *Group {
 	}
 }
 
-// register builds the full pattern and registers the handler on the mux.
-func (g *Group) register(method, pattern string, handler http.Handler) {
-	fullPath := joinPath(g.fullPrefix(), pattern)
-	fullPattern := method + " " + fullPath
+// Route creates a child group with the given prefix and optional middleware,
+// then calls fn to register routes on it. This is syntactic sugar for inline sub-routing:
+//
+//	r.Route("/users", func(sub *Group) {
+//	    sub.Get("/", listUsers)
+//	    sub.Get("/{id}", getUser)
+//	})
+func (g *Group) Route(prefix string, fn func(*Group), mw ...middleware.Middleware) *Group {
+	sub := g.Group(prefix, mw...)
+	fn(sub)
+	return sub
+}
 
-	chain := g.collectMiddleware()
+// Static serves files from the given filesystem directory under the URL prefix.
+// Group middleware is applied to all requests.
+//
+//	r.Static("/assets", "./public")
+func (g *Group) Static(prefix, dir string) {
+	groupPrefix, chain := g.resolve()
+	fullPrefix := joinPath(groupPrefix, prefix)
+	fs := http.StripPrefix(fullPrefix, http.FileServer(http.Dir(dir)))
+	if len(chain) > 0 {
+		fs = middleware.Chain(chain...)(fs)
+	}
+
+	g.router.mux.Handle(fullPrefix+"/", markMatched(fs))
+
+	g.router.routes = append(g.router.routes, RouteInfo{
+		Method:  "GET",
+		Pattern: fullPrefix + "/{file...}",
+	})
+}
+
+// File registers a handler that serves a single file for GET requests.
+//
+//	r.File("/favicon.ico", "./public/favicon.ico")
+func (g *Group) File(pattern, filePath string) {
+	g.register("GET", pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filePath)
+	}), nil)
+}
+
+// Mount attaches an http.Handler at the given prefix, stripping the prefix
+// from the request path before passing it to the handler. Group middleware is applied.
+// If the handler is a *Router, its routes are merged into the parent's route table for introspection.
+//
+//	admin := router.New()
+//	admin.Get("/stats", statsHandler)
+//	r.Mount("/admin", admin)
+func (g *Group) Mount(prefix string, handler http.Handler) {
+	groupPrefix, chain := g.resolve()
+	fullPrefix := joinPath(groupPrefix, prefix)
+
+	// Order: markMatched → middleware → StripPrefix → handler
+	// This ensures parent middleware sees the full path (consistent with Static/regular routes)
+	// and markMatched always runs regardless of StripPrefix outcome.
+	h := http.StripPrefix(fullPrefix, handler)
+	if len(chain) > 0 {
+		h = middleware.Chain(chain...)(h)
+	}
+
+	g.router.mux.Handle(fullPrefix+"/", markMatched(h))
+	g.router.mux.Handle(fullPrefix, markMatched(h))
+
+	// Merge sub-router routes for introspection; otherwise record a single mount entry.
+	if sub, ok := handler.(*Router); ok {
+		for _, ri := range sub.routes {
+			idx := len(g.router.routes)
+			g.router.routes = append(g.router.routes, RouteInfo{
+				Method:      ri.Method,
+				Pattern:     joinPath(fullPrefix, ri.Pattern),
+				Name:        ri.Name,
+				HandlerName: ri.HandlerName,
+			})
+			if ri.Name != "" {
+				if _, exists := g.router.namedRoutes[ri.Name]; exists {
+					panic(fmt.Sprintf("router: duplicate route name %q (from mounted sub-router)", ri.Name))
+				}
+				g.router.namedRoutes[ri.Name] = idx
+			}
+		}
+	} else {
+		g.router.routes = append(g.router.routes, RouteInfo{
+			Pattern:     fullPrefix + "/",
+			HandlerName: handlerName(handler),
+		})
+	}
+}
+
+// With returns a child group that shares this group's prefix but adds
+// the given middleware. It is intended for per-route middleware:
+//
+//	r.With(authMW).Get("/admin", adminHandler)
+func (g *Group) With(mw ...middleware.Middleware) *Group {
+	return &Group{
+		prefix:      "",
+		middlewares: mw,
+		router:      g.router,
+		parent:      g,
+	}
+}
+
+// register builds the full pattern, registers the handler on the mux, and records the route.
+func (g *Group) register(method, pattern string, handler http.Handler, origFn any) *RouteEntry {
+	prefix, chain := g.resolve()
+	fullPath := joinPath(prefix, pattern)
+	fullPattern := method + " " + fullPath
 	if len(chain) > 0 {
 		handler = middleware.Chain(chain...)(handler)
 	}
 	g.router.mux.Handle(fullPattern, markMatched(handler))
+
+	idx := len(g.router.routes)
+	g.router.routes = append(g.router.routes, RouteInfo{
+		Method:      method,
+		Pattern:     fullPath,
+		HandlerName: handlerName(origFn),
+	})
+	return &RouteEntry{router: g.router, index: idx}
 }
 
-// collectMiddleware walks the parent chain from root to current group
-// and returns the accumulated middleware slice in order.
-func (g *Group) collectMiddleware() []middleware.Middleware {
-	// Build parent chain (current → root).
-	var groups []*Group
+// resolve walks the parent chain once and returns both the full prefix
+// and the accumulated middleware slice (root → current order).
+// It pre-sizes slices and tracks the last written byte to avoid
+// intermediate string allocations.
+func (g *Group) resolve() (prefix string, mws []middleware.Middleware) {
+	// Count depth for pre-sizing.
+	depth := 0
 	for cur := g; cur != nil; cur = cur.parent {
-		groups = append(groups, cur)
+		depth++
 	}
 
-	// Reverse to get root → current order.
-	var mws []middleware.Middleware
-	for i := len(groups) - 1; i >= 0; i-- {
-		mws = append(mws, groups[i].middlewares...)
-	}
-	return mws
-}
-
-// fullPrefix returns the concatenated prefix from root to this group.
-// It normalizes joins to prevent double slashes (e.g. "/api/" + "/users" → "/api/users").
-func (g *Group) fullPrefix() string {
-	var groups []*Group
+	// Collect groups in root → current order.
+	groups := make([]*Group, depth)
+	i := depth - 1
 	for cur := g; cur != nil; cur = cur.parent {
-		groups = append(groups, cur)
+		groups[i] = cur
+		i--
 	}
 
+	// Build prefix, tracking last byte to avoid b.String() in the loop.
 	var b strings.Builder
-	for i := len(groups) - 1; i >= 0; i-- {
-		prefix := groups[i].prefix
-		if b.Len() > 0 && strings.HasSuffix(b.String(), "/") && strings.HasPrefix(prefix, "/") {
-			prefix = prefix[1:] // strip leading slash to avoid double slash
+	var lastByte byte
+	for _, grp := range groups {
+		p := grp.prefix
+		if len(p) == 0 {
+			continue
 		}
-		b.WriteString(prefix)
+		if b.Len() > 0 && lastByte == '/' && p[0] == '/' {
+			p = p[1:]
+		}
+		if len(p) > 0 {
+			b.WriteString(p)
+			lastByte = p[len(p)-1]
+		}
 	}
-	return b.String()
+	prefix = b.String()
+
+	// Collect middleware in root → current order.
+	for _, grp := range groups {
+		mws = append(mws, grp.middlewares...)
+	}
+	return
 }
 
 // joinPath concatenates a prefix and path, normalizing double slashes at the join point.
@@ -185,7 +312,7 @@ func joinPath(prefix, path string) string {
 
 // splitPattern separates a Go 1.22 pattern into method and path parts.
 // "GET /users" → ("GET", "/users"), "/users" → ("", "/users")
-// It trims extra whitespace between method and path and validates the method is uppercase.
+// It trims extra whitespace between method and path.
 func splitPattern(pattern string) (method, path string) {
 	method, path, found := strings.Cut(pattern, " ")
 	if !found {
