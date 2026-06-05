@@ -51,16 +51,3 @@ func WithMaxResponseBody(n int64) Option {
 func WithTransport(t http.RoundTripper) Option {
 	return func(c *Client) { c.transport = t }
 }
-
-// WithErrorOnStatus controls whether a non-2xx HTTP status is returned as an
-// error. It is enabled by default: requests to a 4xx/5xx endpoint return an
-// *HTTPError alongside the response.
-//
-// Disable it for services that return structured error bodies you want to
-// decode directly. Non-2xx responses then return (resp, nil) and you branch on
-// resp.IsClientError()/IsServerError() and read the body via resp.JSON(). Retry
-// behavior is unchanged — 5xx responses are still retried internally — and
-// transport, context, and circuit-breaker failures are still returned as errors.
-func WithErrorOnStatus(enabled bool) Option {
-	return func(c *Client) { c.errorOnStatus = enabled }
-}
