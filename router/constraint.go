@@ -21,6 +21,13 @@ type ParamConstraint struct {
 // Constraints are checked in order before the handler is called.
 // On the first failure, it returns errors.BadRequest with the constraint's ErrMessage.
 func ValidateParams(fn HandlerFunc, constraints ...ParamConstraint) HandlerFunc {
+	// Validate constraints at setup time
+	for _, c := range constraints {
+		if c.Validate == nil {
+			panic(fmt.Sprintf("router: constraint for parameter %q has nil Validate function", c.Name))
+		}
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) error {
 		for _, c := range constraints {
 			val := r.PathValue(c.Name)

@@ -5,12 +5,14 @@ import (
 )
 
 func TestDeleteSimple(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").Where("id = $1", 1).Build()
 	expectSQL(t, "DELETE FROM users WHERE id = $1", sql)
 	expectArgs(t, []any{1}, args)
 }
 
 func TestDeleteMultipleWhere(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").
 		Where("active = $1", false).
 		Where("created_at < $1", "2023-01-01").
@@ -20,6 +22,7 @@ func TestDeleteMultipleWhere(t *testing.T) {
 }
 
 func TestDeleteUsing(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users u").
 		Using("blacklist b").
 		Where("u.email = b.email").
@@ -30,22 +33,26 @@ func TestDeleteUsing(t *testing.T) {
 }
 
 func TestDeleteWhereIn(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").WhereIn("id", 1, 2, 3).Build()
 	expectSQL(t, "DELETE FROM users WHERE id IN ($1, $2, $3)", sql)
 	expectArgs(t, []any{1, 2, 3}, args)
 }
 
 func TestDeleteWhereNull(t *testing.T) {
+	t.Parallel()
 	sql, _ := Delete("users").WhereNull("email").Build()
 	expectSQL(t, "DELETE FROM users WHERE email IS NULL", sql)
 }
 
 func TestDeleteWhereNotNull(t *testing.T) {
+	t.Parallel()
 	sql, _ := Delete("sessions").WhereNotNull("expired_at").Build()
 	expectSQL(t, "DELETE FROM sessions WHERE expired_at IS NOT NULL", sql)
 }
 
 func TestDeleteReturning(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").
 		Where("id = $1", 1).
 		Returning("id", "name").
@@ -55,6 +62,7 @@ func TestDeleteReturning(t *testing.T) {
 }
 
 func TestDeleteWithCTE(t *testing.T) {
+	t.Parallel()
 	cteQuery := Select("id").From("users").Where("active = $1", false).Query()
 	sql, args := Delete("users").
 		With("to_delete", cteQuery).
@@ -65,54 +73,63 @@ func TestDeleteWithCTE(t *testing.T) {
 }
 
 func TestDeleteWhereEq(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").WhereEq("id", 1).Build()
 	expectSQL(t, "DELETE FROM users WHERE id = $1", sql)
 	expectArgs(t, []any{1}, args)
 }
 
 func TestDeleteWhereNeq(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").WhereNeq("role", "admin").Build()
 	expectSQL(t, "DELETE FROM users WHERE role != $1", sql)
 	expectArgs(t, []any{"admin"}, args)
 }
 
 func TestDeleteWhereGt(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("logs").WhereGt("age_days", 90).Build()
 	expectSQL(t, "DELETE FROM logs WHERE age_days > $1", sql)
 	expectArgs(t, []any{90}, args)
 }
 
 func TestDeleteWhereGte(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("logs").WhereGte("age_days", 90).Build()
 	expectSQL(t, "DELETE FROM logs WHERE age_days >= $1", sql)
 	expectArgs(t, []any{90}, args)
 }
 
 func TestDeleteWhereLt(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("sessions").WhereLt("last_active", "2024-01-01").Build()
 	expectSQL(t, "DELETE FROM sessions WHERE last_active < $1", sql)
 	expectArgs(t, []any{"2024-01-01"}, args)
 }
 
 func TestDeleteWhereLte(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("sessions").WhereLte("last_active", "2024-01-01").Build()
 	expectSQL(t, "DELETE FROM sessions WHERE last_active <= $1", sql)
 	expectArgs(t, []any{"2024-01-01"}, args)
 }
 
 func TestDeleteWhereLike(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").WhereLike("email", "%@spam.com").Build()
 	expectSQL(t, "DELETE FROM users WHERE email LIKE $1", sql)
 	expectArgs(t, []any{"%@spam.com"}, args)
 }
 
 func TestDeleteWhereILike(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").WhereILike("email", "%@spam.com").Build()
 	expectSQL(t, "DELETE FROM users WHERE email ILIKE $1", sql)
 	expectArgs(t, []any{"%@spam.com"}, args)
 }
 
 func TestDeleteWhereExists(t *testing.T) {
+	t.Parallel()
 	sub := Select("1").From("banned_users").Where("banned_users.id = users.id")
 	sql, args := Delete("users").WhereExists(sub).Build()
 	expectSQL(t, "DELETE FROM users WHERE EXISTS (SELECT 1 FROM banned_users WHERE banned_users.id = users.id)", sql)
@@ -120,6 +137,7 @@ func TestDeleteWhereExists(t *testing.T) {
 }
 
 func TestDeleteWhereNotExists(t *testing.T) {
+	t.Parallel()
 	sub := Select("1").From("orders").Where("orders.user_id = users.id")
 	sql, args := Delete("users").WhereNotExists(sub).Build()
 	expectSQL(t, "DELETE FROM users WHERE NOT EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)", sql)
@@ -127,6 +145,7 @@ func TestDeleteWhereNotExists(t *testing.T) {
 }
 
 func TestDeleteWhereOr(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").
 		WhereOr(
 			Or("status = $1", "spam"),
@@ -138,6 +157,7 @@ func TestDeleteWhereOr(t *testing.T) {
 }
 
 func TestDeleteWhereInSubquery(t *testing.T) {
+	t.Parallel()
 	sub := Select("user_id").From("blacklist")
 	sql, args := Delete("users").
 		WhereInSubquery("id", sub).
@@ -147,6 +167,7 @@ func TestDeleteWhereInSubquery(t *testing.T) {
 }
 
 func TestDeleteWhereNotInSubquery(t *testing.T) {
+	t.Parallel()
 	sub := Select("id").From("active_users")
 	sql, args := Delete("users").
 		WhereNotInSubquery("id", sub).
@@ -156,6 +177,7 @@ func TestDeleteWhereNotInSubquery(t *testing.T) {
 }
 
 func TestDeleteWhen(t *testing.T) {
+	t.Parallel()
 	forceAll := false
 	sql, args := Delete("sessions").
 		When(!forceAll, func(b *DeleteBuilder) {
@@ -167,6 +189,7 @@ func TestDeleteWhen(t *testing.T) {
 }
 
 func TestDeleteWhenFalse(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("sessions").
 		When(false, func(b *DeleteBuilder) {
 			b.Where("should_not_appear = $1", true)
@@ -177,6 +200,7 @@ func TestDeleteWhenFalse(t *testing.T) {
 }
 
 func TestDeleteClone(t *testing.T) {
+	t.Parallel()
 	base := Delete("users").Where("active = $1", false)
 	clone := base.Clone()
 	clone.Where("created_at < $1", "2023-01-01")
@@ -191,6 +215,7 @@ func TestDeleteClone(t *testing.T) {
 }
 
 func TestDeleteReturningExpr(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").
 		Where("id = $1", 1).
 		Returning("id").
@@ -201,6 +226,7 @@ func TestDeleteReturningExpr(t *testing.T) {
 }
 
 func TestDeleteReturningExprWithParams(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users").
 		Where("active = $1", false).
 		ReturningExpr(
@@ -212,6 +238,7 @@ func TestDeleteReturningExprWithParams(t *testing.T) {
 }
 
 func TestDeleteWhereColumn(t *testing.T) {
+	t.Parallel()
 	sql, args := Delete("users u").
 		Using("blacklist b").
 		WhereColumn("u.email", "=", "b.email").
@@ -221,12 +248,14 @@ func TestDeleteWhereColumn(t *testing.T) {
 }
 
 func TestDeleteQuery(t *testing.T) {
+	t.Parallel()
 	q := Delete("users").Where("id = $1", 1).Query()
 	expectSQL(t, "DELETE FROM users WHERE id = $1", q.SQL)
 	expectArgs(t, []any{1}, q.Args)
 }
 
 func TestDeleteString(t *testing.T) {
+	t.Parallel()
 	s := Delete("users").Where("id = $1", 1).String()
 	expectSQL(t, "DELETE FROM users WHERE id = $1", s)
 }

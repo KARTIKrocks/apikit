@@ -12,16 +12,20 @@ import (
 // QueryAll executes a query and returns all rows scanned into []T.
 // T must be a struct with `db` tags on its fields.
 // Returns an empty slice (not an error) when the query yields no rows.
-func QueryAll[T any](ctx context.Context, query string, args ...any) ([]T, error) {
-	db, err := conn(ctx)
-	if err != nil {
-		return nil, err
+func QueryAll[T any](ctx context.Context, query string, args ...any) (result []T, err error) {
+	db, dbErr := conn(ctx)
+	if dbErr != nil {
+		return nil, dbErr
 	}
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, errors.New(errors.CodeDatabaseError, "query failed").Wrap(err)
+	rows, queryErr := db.QueryContext(ctx, query, args...)
+	if queryErr != nil {
+		return nil, errors.New(errors.CodeDatabaseError, "query failed").Wrap(queryErr)
 	}
-	defer rows.Close() //nolint:errcheck // closing query rows
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	return scanRows[T](rows)
 }
@@ -29,17 +33,21 @@ func QueryAll[T any](ctx context.Context, query string, args ...any) ([]T, error
 // QueryOne executes a query and scans the first row into T.
 // T must be a struct with `db` tags on its fields.
 // Returns errors.CodeNotFound if the query yields no rows.
-func QueryOne[T any](ctx context.Context, query string, args ...any) (T, error) {
+func QueryOne[T any](ctx context.Context, query string, args ...any) (result T, err error) {
 	var zero T
-	db, err := conn(ctx)
-	if err != nil {
-		return zero, err
+	db, dbErr := conn(ctx)
+	if dbErr != nil {
+		return zero, dbErr
 	}
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return zero, errors.New(errors.CodeDatabaseError, "query failed").Wrap(err)
+	rows, queryErr := db.QueryContext(ctx, query, args...)
+	if queryErr != nil {
+		return zero, errors.New(errors.CodeDatabaseError, "query failed").Wrap(queryErr)
 	}
-	defer rows.Close() //nolint:errcheck // closing query rows
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	return scanRow[T](rows)
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -92,7 +93,11 @@ func WithShutdownTimeout(d time.Duration) Option {
 // WithLogger sets the structured logger (default slog.Default()).
 func WithLogger(logger *slog.Logger) Option {
 	return func(s *Server) {
-		s.logger = logger
+		if logger != nil {
+			s.logger = logger
+		} else {
+			s.logger = slog.Default()
+		}
 	}
 }
 
@@ -129,6 +134,12 @@ func (s *Server) OnShutdown(fn func(ctx context.Context) error) {
 // Start runs the server and blocks until a shutdown signal (SIGINT/SIGTERM)
 // is received or Shutdown is called programmatically.
 func (s *Server) Start() error {
+	var closeOnce sync.Once
+	closeDone := func() {
+		closeOnce.Do(func() { close(s.doneCh) })
+	}
+	defer closeDone()
+
 	// Run OnStart hooks
 	for _, fn := range s.onStart {
 		if err := fn(); err != nil {
@@ -198,7 +209,6 @@ func (s *Server) Start() error {
 	}
 
 	s.logger.Info("server stopped")
-	close(s.doneCh)
 	return nil
 }
 

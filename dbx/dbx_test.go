@@ -436,7 +436,10 @@ func TestConn_DefaultIsUsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	affected, _ := result.RowsAffected()
+	affected, err := result.RowsAffected()
+	if err != nil {
+		t.Fatalf("unexpected error from RowsAffected: %v", err)
+	}
 	if affected != 7 {
 		t.Errorf("expected 7 rows affected, got %d", affected)
 	}

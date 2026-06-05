@@ -134,7 +134,9 @@ func TestErrorHandlerDefaultInternalError(t *testing.T) {
 	}
 
 	var env errorEnvelope
-	json.NewDecoder(rec.Body).Decode(&env)
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if env.Error.Code != "INTERNAL_ERROR" {
 		t.Errorf("expected INTERNAL_ERROR, got %s", env.Error.Code)
 	}
@@ -182,7 +184,9 @@ func TestErrorHandlerLogsInternalCause(t *testing.T) {
 
 	// Client must only see the safe message, never the cause.
 	var env errorEnvelope
-	json.NewDecoder(rec.Body).Decode(&env)
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if env.Error.Message != "could not save user" {
 		t.Errorf("client got unexpected message: %q", env.Error.Message)
 	}
@@ -399,7 +403,9 @@ func TestErrorHandlerWithFields(t *testing.T) {
 	}
 
 	var env errorEnvelope
-	json.NewDecoder(rec.Body).Decode(&env)
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if len(env.Error.Fields) != 2 {
 		t.Errorf("expected 2 fields, got %d", len(env.Error.Fields))
 	}
@@ -1202,7 +1208,9 @@ func TestNotFoundFallsBackToErrorHandler(t *testing.T) {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 	var env errorEnvelope
-	json.NewDecoder(rec.Body).Decode(&env)
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if env.Error.Code != "NOT_FOUND" {
 		t.Errorf("expected NOT_FOUND, got %s", env.Error.Code)
 	}
@@ -1511,7 +1519,9 @@ func TestMountMiddlewareSeesFullPath(t *testing.T) {
 
 func TestStaticServesFiles(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "style.css"), []byte("body{}"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "style.css"), []byte("body{}"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
 
 	r := New()
 	r.Static("/assets", dir)
@@ -1539,7 +1549,9 @@ func TestStaticMissingFile(t *testing.T) {
 
 func TestStaticWithGroupMiddleware(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "app.js"), []byte("alert(1)"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("alert(1)"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
 
 	r := New()
 	api := r.Group("/cdn", headerMiddleware("X-CDN", "yes"))
@@ -1574,7 +1586,9 @@ func TestStaticIntrospection(t *testing.T) {
 func TestFileSingle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "favicon.ico")
-	os.WriteFile(path, []byte("icon-data"), 0644)
+	if err := os.WriteFile(path, []byte("icon-data"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
 
 	r := New()
 	r.File("/favicon.ico", path)
@@ -1591,7 +1605,9 @@ func TestFileSingle(t *testing.T) {
 func TestFileInGroup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "robots.txt")
-	os.WriteFile(path, []byte("User-agent: *"), 0644)
+	if err := os.WriteFile(path, []byte("User-agent: *"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
 
 	r := New()
 	api := r.Group("/public")

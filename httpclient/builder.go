@@ -2,6 +2,7 @@ package httpclient
 
 import (
 	"context"
+	"errors"
 	"net/url"
 )
 
@@ -39,6 +40,9 @@ func (rb *RequestBuilder) Body(body any) *RequestBuilder {
 
 // Header sets a request header
 func (rb *RequestBuilder) Header(key, value string) *RequestBuilder {
+	if rb.headers == nil {
+		rb.headers = make(map[string]string)
+	}
 	rb.headers[key] = value
 	return rb
 }
@@ -53,6 +57,9 @@ func (rb *RequestBuilder) Headers(headers map[string]string) *RequestBuilder {
 
 // Param sets a query parameter
 func (rb *RequestBuilder) Param(key, value string) *RequestBuilder {
+	if rb.params == nil {
+		rb.params = make(map[string]string)
+	}
 	rb.params[key] = value
 	return rb
 }
@@ -67,6 +74,9 @@ func (rb *RequestBuilder) Params(params map[string]string) *RequestBuilder {
 
 // BearerToken sets Authorization header
 func (rb *RequestBuilder) BearerToken(token string) *RequestBuilder {
+	if rb.headers == nil {
+		rb.headers = make(map[string]string)
+	}
 	rb.headers["Authorization"] = "Bearer " + token
 	return rb
 }
@@ -80,14 +90,23 @@ func (rb *RequestBuilder) ErrorOnStatus(enabled bool) *RequestBuilder {
 
 // Send executes the request
 func (rb *RequestBuilder) Send(ctx context.Context) (*Response, error) {
+	if rb == nil || rb.client == nil {
+		return nil, errors.New("request builder or client is nil")
+	}
+
 	// Build query string
 	path := rb.path
 	if len(rb.params) > 0 {
-		values := url.Values{}
-		for k, v := range rb.params {
-			values.Add(k, v)
+		u, err := url.Parse(rb.path)
+		if err != nil {
+			return nil, err
 		}
-		path += "?" + values.Encode()
+		q := u.Query()
+		for k, v := range rb.params {
+			q.Add(k, v)
+		}
+		u.RawQuery = q.Encode()
+		path = u.String()
 	}
 
 	errorOnStatus := rb.client.errorOnStatus

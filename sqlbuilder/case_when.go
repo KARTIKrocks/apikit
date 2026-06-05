@@ -50,6 +50,7 @@ func (cb *CaseBuilder) WhenExpr(condSQL string, condArgs []any, thenSQL string, 
 // Else sets the ELSE clause with a literal SQL string.
 func (cb *CaseBuilder) Else(result string) *CaseBuilder {
 	cb.elseSQL = result
+	cb.elseArgs = nil
 	cb.hasElse = true
 	return cb
 }

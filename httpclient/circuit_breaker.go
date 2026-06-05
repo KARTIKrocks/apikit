@@ -31,6 +31,12 @@ type CircuitBreaker struct {
 
 // NewCircuitBreaker creates a new circuit breaker
 func NewCircuitBreaker(threshold int, timeout time.Duration) *CircuitBreaker {
+	if threshold <= 0 {
+		threshold = 1
+	}
+	if timeout <= 0 {
+		timeout = time.Second
+	}
 	return &CircuitBreaker{
 		state:     StateClosed,
 		threshold: threshold,
