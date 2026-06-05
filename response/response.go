@@ -55,6 +55,31 @@ type ErrorBody struct {
 	Details map[string]any    `json:"details,omitempty"`
 }
 
+// MarshalJSON renders the envelope, always including the "data" field on
+// success responses (as null when no data is set) while still omitting it
+// on error responses. The struct tag uses omitempty so error envelopes stay
+// clean; this override forces "data": null for successful responses so
+// clients can rely on the field always being present.
+func (e Envelope) MarshalJSON() ([]byte, error) {
+	if e.Success {
+		// Identical layout but without omitempty on Data, so a nil data
+		// value is rendered as "data": null instead of being dropped.
+		type successEnvelope struct {
+			Success   bool       `json:"success"`
+			Message   string     `json:"message,omitempty"`
+			Data      any        `json:"data"`
+			Error     *ErrorBody `json:"error,omitempty"`
+			Meta      any        `json:"meta,omitempty"`
+			Timestamp int64      `json:"timestamp"`
+		}
+		return json.Marshal(successEnvelope(e))
+	}
+
+	// Error responses keep omitempty so "data" is omitted entirely.
+	type errorEnvelope Envelope
+	return json.Marshal(errorEnvelope(e))
+}
+
 // TypedEnvelope is a generic version of Envelope for type-safe responses.
 // Useful when you want compile-time type checking on the data field.
 type TypedEnvelope[T any] struct {
@@ -90,10 +115,12 @@ func write(w http.ResponseWriter, statusCode int, response any) {
 
 // --- Success responses ---
 
-// JSON writes a success response with the given status code and data.
+// JSON writes a response with the given status code and data. The success
+// flag is derived from the status code (2xx is treated as success) so the
+// envelope stays consistent even when a non-2xx status is passed.
 func JSON(w http.ResponseWriter, statusCode int, data any) {
 	write(w, statusCode, Envelope{
-		Success:   true,
+		Success:   statusCode >= 200 && statusCode < 300,
 		Data:      data,
 		Timestamp: time.Now().Unix(),
 	})
