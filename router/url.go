@@ -2,6 +2,7 @@ package router
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -41,13 +42,18 @@ func (r *Router) URL(name string, params ...string) string {
 				continue
 			}
 			placeholder := pattern[i+1 : i+end]
+			isCatchAll := strings.HasSuffix(placeholder, "...")
 			key := strings.TrimSuffix(placeholder, "...")
 			val, found := m[key]
 			if !found {
 				panic(fmt.Sprintf("router: missing param %q for route %q", key, name))
 			}
 			used++
-			b.WriteString(val)
+			if isCatchAll {
+				b.WriteString(val)
+			} else {
+				b.WriteString(url.PathEscape(val))
+			}
 			i += end + 1
 		} else {
 			b.WriteByte(pattern[i])

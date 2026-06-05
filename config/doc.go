@@ -29,7 +29,7 @@
 // # Source Priority (high to low)
 //
 //  1. Environment variables (always win)
-//  2. .env file (loaded into process env, doesn't override existing)
+//  2. .env file (does not override existing env vars)
 //  3. JSON config file (base config layer)
 //  4. default:"..." tags (fallback)
 //

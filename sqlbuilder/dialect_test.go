@@ -19,6 +19,8 @@ func TestConvertPlaceholders(t *testing.T) {
 		{"no placeholders", "SELECT 1", MySQL, "SELECT 1"},
 		{"dollar not placeholder", "SELECT '$$' FROM t", MySQL, "SELECT '$$' FROM t"},
 		{"adjacent text", "WHERE x=$1AND y=$2", MySQL, "WHERE x=?AND y=?"},
+		{"mysql quoted literal", "SELECT '$1'", MySQL, "SELECT '$1'"},
+		{"sqlite quoted literal", "SELECT '$1'", SQLite, "SELECT '$1'"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

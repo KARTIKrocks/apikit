@@ -136,7 +136,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			if req.URL.RawQuery != "" {
 				target += "?" + req.URL.RawQuery
 			}
-			http.Redirect(w, req, target, http.StatusMovedPermanently)
+			http.Redirect(w, req, target, http.StatusPermanentRedirect)
 			return
 		}
 		if r.stripSlash {

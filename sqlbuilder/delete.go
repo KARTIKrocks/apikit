@@ -196,7 +196,7 @@ func (b *DeleteBuilder) Clone() *DeleteBuilder {
 
 // Returning adds a RETURNING clause.
 func (b *DeleteBuilder) Returning(cols ...string) *DeleteBuilder {
-	b.returning = cols
+	b.returning = append(b.returning, cols...)
 	return b
 }
 

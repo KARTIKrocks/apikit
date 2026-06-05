@@ -57,8 +57,17 @@ func TestServer_StartAndShutdown(t *testing.T) {
 		errCh <- srv.Start()
 	}()
 
-	// Give server time to start
-	time.Sleep(50 * time.Millisecond)
+	// Wait for server to be ready
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.Addr() != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if srv.Addr() == nil {
+		t.Fatal("server did not start in time")
+	}
 
 	// Trigger shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -93,7 +102,14 @@ func TestServer_OnStartHook(t *testing.T) {
 		errCh <- srv.Start()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for server to be ready
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.Addr() != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if !called.Load() {
 		t.Error("expected OnStart hook to be called")
@@ -101,7 +117,9 @@ func TestServer_OnStartHook(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Errorf("shutdown error: %v", err)
+	}
 
 	<-errCh
 }
@@ -138,11 +156,20 @@ func TestServer_OnShutdownHook(t *testing.T) {
 		errCh <- srv.Start()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for server to be ready
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.Addr() != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Errorf("shutdown error: %v", err)
+	}
 
 	select {
 	case err := <-errCh:
@@ -173,11 +200,20 @@ func TestServer_MultipleHooks(t *testing.T) {
 		errCh <- srv.Start()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for server to be ready
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.Addr() != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Errorf("shutdown error: %v", err)
+	}
 
 	<-errCh
 
@@ -220,13 +256,28 @@ func generateTestCert(t *testing.T) (certFile, keyFile string) {
 	certFile = filepath.Join(dir, "cert.pem")
 	keyFile = filepath.Join(dir, "key.pem")
 
-	certOut, _ := os.Create(certFile)
-	_ = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certOut, err := os.Create(certFile)
+	if err != nil {
+		t.Fatalf("create cert file: %v", err)
+	}
+	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		certOut.Close()
+		t.Fatalf("encode cert: %v", err)
+	}
 	certOut.Close()
 
-	keyBytes, _ := x509.MarshalECPrivateKey(key)
-	keyOut, _ := os.Create(keyFile)
-	_ = pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	keyBytes, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
+	keyOut, err := os.Create(keyFile)
+	if err != nil {
+		t.Fatalf("create key file: %v", err)
+	}
+	if err := pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes}); err != nil {
+		keyOut.Close()
+		t.Fatalf("encode key: %v", err)
+	}
 	keyOut.Close()
 
 	return certFile, keyFile
@@ -249,18 +300,33 @@ func TestServer_TLS(t *testing.T) {
 		errCh <- srv.Start()
 	}()
 
-	// Wait for server to start
-	time.Sleep(100 * time.Millisecond)
-
-	addr := srv.Addr()
+	// Wait for server to be ready
+	deadline := time.Now().Add(2 * time.Second)
+	var addr net.Addr
+	for time.Now().Before(deadline) {
+		addr = srv.Addr()
+		if addr != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if addr == nil {
 		t.Fatal("expected non-nil address after start")
 	}
 
-	// Make HTTPS request with InsecureSkipVerify (self-signed cert)
+	// Load the self-signed cert into a cert pool for proper validation
+	certPEM, err := os.ReadFile(certFile)
+	if err != nil {
+		t.Fatalf("read cert file: %v", err)
+	}
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(certPEM) {
+		t.Fatal("failed to append cert to pool")
+	}
+
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{RootCAs: certPool},
 		},
 	}
 
@@ -270,7 +336,10 @@ func TestServer_TLS(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
 	if string(body) != "ok" {
 		t.Errorf("expected body %q, got %q", "ok", string(body))
 	}

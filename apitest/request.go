@@ -72,7 +72,18 @@ func (b *RequestBuilder) WithContext(ctx context.Context) *RequestBuilder {
 func (b *RequestBuilder) Build() *http.Request {
 	target := b.target
 	if len(b.query) > 0 {
-		target += "?" + b.query.Encode()
+		u, err := url.Parse(b.target)
+		if err != nil {
+			panic("apitest: failed to parse target URL: " + err.Error())
+		}
+		q := u.Query()
+		for key, values := range b.query {
+			for _, v := range values {
+				q.Add(key, v)
+			}
+		}
+		u.RawQuery = q.Encode()
+		target = u.String()
 	}
 
 	var req *http.Request
@@ -82,16 +93,20 @@ func (b *RequestBuilder) Build() *http.Request {
 			panic("apitest: failed to marshal request body: " + err.Error())
 		}
 		req = httptest.NewRequest(b.method, target, bytes.NewReader(data))
-		if req.Header.Get("Content-Type") == "" {
-			req.Header.Set("Content-Type", "application/json")
-		}
 	} else {
 		req = httptest.NewRequest(b.method, target, nil)
 	}
 
+	// Set default Content-Type only if not provided in headers
+	if b.body != nil {
+		if _, hasContentType := b.headers["Content-Type"]; !hasContentType {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	}
+
 	for key, values := range b.headers {
 		for _, v := range values {
-			req.Header.Add(key, v)
+			req.Header.Set(key, v)
 		}
 	}
 

@@ -11,12 +11,21 @@ type Option func(*Client)
 
 // WithTimeout sets the HTTP request timeout.
 func WithTimeout(d time.Duration) Option {
-	return func(c *Client) { c.timeout = d }
+	return func(c *Client) {
+		if d > 0 {
+			c.timeout = d
+		}
+	}
 }
 
 // WithMaxRetries sets the maximum number of retry attempts.
 func WithMaxRetries(n int) Option {
-	return func(c *Client) { c.maxRetries = n }
+	return func(c *Client) {
+		if n < 0 {
+			n = 0
+		}
+		c.maxRetries = n
+	}
 }
 
 // WithRetryDelay sets the initial delay between retries.
@@ -31,7 +40,13 @@ func WithMaxRetryDelay(d time.Duration) Option {
 
 // WithLogger sets the structured logger.
 func WithLogger(logger *slog.Logger) Option {
-	return func(c *Client) { c.logger = logger }
+	return func(c *Client) {
+		if logger != nil {
+			c.logger = logger
+		} else {
+			c.logger = slog.Default()
+		}
+	}
 }
 
 // WithCircuitBreaker enables the circuit breaker with the given threshold and timeout.
