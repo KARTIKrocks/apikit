@@ -1,12 +1,15 @@
 package router
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/KARTIKrocks/apikit/errors"
@@ -156,6 +159,84 @@ func TestCustomErrorHandler(t *testing.T) {
 	}
 	if captured == nil {
 		t.Error("expected error to be captured")
+	}
+}
+
+// newLogRouter returns a router whose error handler logs to buf at debug level.
+func newLogRouter(buf *bytes.Buffer) *Router {
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return New(WithErrorHandler(NewErrorHandler(logger)))
+}
+
+func TestErrorHandlerLogsInternalCause(t *testing.T) {
+	var buf bytes.Buffer
+	r := newLogRouter(&buf)
+	r.Get("/boom", func(w http.ResponseWriter, req *http.Request) error {
+		return errors.Internalf(fmt.Errorf("db connection refused"), "could not save user")
+	})
+
+	rec := doRequest(r, "GET", "/boom")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+
+	// Client must only see the safe message, never the cause.
+	var env errorEnvelope
+	json.NewDecoder(rec.Body).Decode(&env)
+	if env.Error.Message != "could not save user" {
+		t.Errorf("client got unexpected message: %q", env.Error.Message)
+	}
+	if strings.Contains(rec.Body.String(), "db connection refused") {
+		t.Error("wrapped cause leaked to the client response")
+	}
+
+	// The cause must reach the log at Error level.
+	logged := buf.String()
+	if !strings.Contains(logged, "db connection refused") {
+		t.Errorf("expected wrapped cause in log, got: %s", logged)
+	}
+	if !strings.Contains(logged, "level=ERROR") {
+		t.Errorf("expected ERROR level for 5xx, got: %s", logged)
+	}
+}
+
+func TestErrorHandlerDoesNotLogPlainClientError(t *testing.T) {
+	var buf bytes.Buffer
+	r := newLogRouter(&buf)
+	r.Get("/missing", func(w http.ResponseWriter, req *http.Request) error {
+		return errors.NotFound("User")
+	})
+
+	rec := doRequest(r, "GET", "/missing")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no log for a plain 4xx, got: %s", buf.String())
+	}
+}
+
+func TestErrorHandlerLogsClientErrorWithCauseAtWarn(t *testing.T) {
+	var buf bytes.Buffer
+	r := newLogRouter(&buf)
+	r.Get("/bad", func(w http.ResponseWriter, req *http.Request) error {
+		return errors.BadRequest("invalid payload").Wrap(fmt.Errorf("json parse failure"))
+	})
+
+	rec := doRequest(r, "GET", "/bad")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+
+	logged := buf.String()
+	if !strings.Contains(logged, "json parse failure") {
+		t.Errorf("expected hidden cause in log, got: %s", logged)
+	}
+	if !strings.Contains(logged, "level=WARN") {
+		t.Errorf("expected WARN level for 4xx with cause, got: %s", logged)
+	}
+	if strings.Contains(rec.Body.String(), "json parse failure") {
+		t.Error("wrapped cause leaked to the client response")
 	}
 }
 

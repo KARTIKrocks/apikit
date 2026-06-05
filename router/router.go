@@ -20,6 +20,7 @@ package router
 import (
 	"encoding/json"
 	stderrors "errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -349,23 +350,67 @@ type errorBody struct {
 	Fields  map[string]string `json:"fields,omitempty"`
 }
 
-// DefaultErrorHandler writes a JSON error response matching the standard envelope format.
-// It uses errors.As to extract *errors.Error; unrecognized errors become 500 Internal Server Error.
-func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
+// DefaultErrorHandler writes a JSON error response matching the standard envelope
+// format and logs server errors via slog.Default(). It uses errors.As to extract
+// *errors.Error; unrecognized errors become 500 Internal Server Error.
+//
+// Logging policy: responses with status >= 500 are logged at Error level so the
+// wrapped cause of an Internal/Internalf error is not silently dropped. A 4xx
+// that carries a wrapped cause is logged at Warn level; plain 4xx responses are
+// not logged. To log to a specific logger, use NewErrorHandler.
+func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	handleError(w, r, err, nil)
+}
+
+// NewErrorHandler returns an ErrorHandler that behaves like DefaultErrorHandler
+// but logs to the given logger. If logger is nil, slog.Default() is used at call
+// time.
+func NewErrorHandler(logger *slog.Logger) ErrorHandler {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		handleError(w, r, err, logger)
+	}
+}
+
+// handleError is the shared implementation behind DefaultErrorHandler and
+// NewErrorHandler.
+func handleError(w http.ResponseWriter, r *http.Request, err error, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	var apiErr *errors.Error
 	code := http.StatusInternalServerError
 	errCode := "INTERNAL_ERROR"
 	message := "An internal error occurred"
 	var fields map[string]string
+	var stack string
 
 	if stderrors.As(err, &apiErr) {
 		code = apiErr.StatusCode
 		errCode = apiErr.Code
 		message = apiErr.Message
 		fields = apiErr.Fields
+		stack = apiErr.Stack
 	}
 
-	body, err := json.Marshal(errorEnvelope{
+	// Surface the underlying cause to observability before it is dropped from
+	// the wire: err.Error() includes the wrapped cause, which is never sent to
+	// the client. Server errors always log; client errors log only when they
+	// hide a wrapped cause.
+	switch {
+	case code >= 500:
+		logger.Error("request error",
+			"method", r.Method, "path", r.URL.Path,
+			"code", errCode, "status", code,
+			"error", err.Error(), "stack", stack)
+	case apiErr != nil && apiErr.Err != nil:
+		logger.Warn("request error with wrapped cause",
+			"method", r.Method, "path", r.URL.Path,
+			"code", errCode, "status", code,
+			"error", err.Error(), "stack", stack)
+	}
+
+	body, marshalErr := json.Marshal(errorEnvelope{
 		Success: false,
 		Error: &errorBody{
 			Code:    errCode,
@@ -374,7 +419,7 @@ func DefaultErrorHandler(w http.ResponseWriter, _ *http.Request, err error) {
 		},
 		Timestamp: time.Now().Unix(),
 	})
-	if err != nil {
+	if marshalErr != nil {
 		http.Error(w, `{"success":false,"error":{"code":"INTERNAL_ERROR","message":"An internal error occurred"}}`, http.StatusInternalServerError)
 		return
 	}
