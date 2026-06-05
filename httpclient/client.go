@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -45,6 +46,7 @@ type Client struct {
 	logger          *slog.Logger
 	cb              *CircuitBreaker
 	transport       http.RoundTripper
+	errorOnStatus   bool
 }
 
 // DefaultMaxResponseBody is the default maximum response body size (10 MB).
@@ -61,6 +63,7 @@ func New(baseURL string, opts ...Option) *Client {
 		maxRetryDelay:   10 * time.Second,
 		maxResponseBody: DefaultMaxResponseBody,
 		logger:          slog.Default(),
+		errorOnStatus:   true,
 	}
 
 	for _, opt := range opts {
@@ -144,9 +147,42 @@ func (c *Client) Request() *RequestBuilder {
 	}
 }
 
-// doRequest performs the HTTP request with retries and optional circuit breaker.
+// doRequest performs the HTTP request with retries and optional circuit
+// breaker. When error-on-status is disabled, a non-2xx response that produced
+// only an *HTTPError is returned as (resp, nil) so callers can inspect the
+// Response directly; transport, context, and circuit-breaker failures still
+// surface as errors.
 func (c *Client) doRequest(ctx context.Context, method, path string, body any, headers map[string]string) (*Response, error) {
+	return c.do(ctx, method, path, body, headers, c.errorOnStatus)
+}
+
+// do runs the request with the given error-on-status policy, allowing
+// per-request overrides of the client default.
+func (c *Client) do(ctx context.Context, method, path string, body any, headers map[string]string, errorOnStatus bool) (*Response, error) {
+	resp, err := c.doRequestWithRetries(ctx, method, path, body, headers)
+	return finalize(resp, err, errorOnStatus)
+}
+
+// finalize applies the error-on-status policy to a completed request.
+func finalize(resp *Response, err error, errorOnStatus bool) (*Response, error) {
+	if err == nil || errorOnStatus {
+		return resp, err
+	}
+	// Opted out of error-on-status: suppress the error only when it is purely
+	// a status error and we have a response to hand back.
+	var he *HTTPError
+	if resp != nil && stderrors.As(err, &he) {
+		return resp, nil
+	}
+	return resp, err
+}
+
+// doRequestWithRetries performs the HTTP request with retries and optional
+// circuit breaker, always treating non-2xx as an error internally so retry
+// decisions stay consistent.
+func (c *Client) doRequestWithRetries(ctx context.Context, method, path string, body any, headers map[string]string) (*Response, error) {
 	var lastErr error
+	var lastResp *Response
 
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if attempt > 0 {
@@ -184,6 +220,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any, h
 		}
 
 		lastErr = err
+		lastResp = resp
 
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -195,7 +232,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any, h
 		}
 	}
 
-	return nil, fmt.Errorf("request failed after %d attempts: %w", c.maxRetries+1, lastErr)
+	// Return the last response (if any) alongside the error so callers can
+	// still inspect the status and read the error body without errors.As.
+	return lastResp, fmt.Errorf("request failed after %d attempts: %w", c.maxRetries+1, lastErr)
 }
 
 // executeRequest executes a single HTTP request.

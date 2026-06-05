@@ -3,6 +3,7 @@ package httpclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -190,6 +191,148 @@ func TestContextCancellationStopsRetries(t *testing.T) {
 	}
 	if calls.Load() > 5 {
 		t.Fatalf("expected retries to stop early, got %d calls", calls.Load())
+	}
+}
+
+func TestExhaustedRetriesReturnsResponse(t *testing.T) {
+	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		fmt.Fprint(w, `{"error":"boom"}`)
+	}, WithMaxRetries(2), WithRetryDelay(time.Millisecond), WithMaxRetryDelay(time.Millisecond))
+	defer ts.Close()
+
+	resp, err := c.Get(context.Background(), "/down")
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+
+	// The response must survive the retry loop so callers can inspect status
+	// and read the error body without unwrapping the error.
+	if resp == nil {
+		t.Fatal("expected non-nil response on retry exhaustion")
+	}
+	if resp.StatusCode != 500 {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	}
+	if !resp.IsServerError() {
+		t.Fatal("expected IsServerError to be true")
+	}
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := resp.JSON(&body); err != nil {
+		t.Fatalf("failed to decode error body from response: %v", err)
+	}
+	if body.Error != "boom" {
+		t.Fatalf("expected error body %q, got %q", "boom", body.Error)
+	}
+}
+
+func TestErrorOnStatusDisabled_ClientError(t *testing.T) {
+	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		fmt.Fprint(w, `{"error":"not found"}`)
+	}, WithErrorOnStatus(false))
+	defer ts.Close()
+
+	resp, err := c.Get(context.Background(), "/missing")
+	if err != nil {
+		t.Fatalf("expected nil error with error-on-status disabled, got %v", err)
+	}
+	if resp == nil || !resp.IsClientError() {
+		t.Fatalf("expected a 4xx response, got %+v", resp)
+	}
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := resp.JSON(&body); err != nil {
+		t.Fatalf("failed to decode body: %v", err)
+	}
+	if body.Error != "not found" {
+		t.Fatalf("expected %q, got %q", "not found", body.Error)
+	}
+}
+
+func TestErrorOnStatusDisabled_ServerErrorAfterRetries(t *testing.T) {
+	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(503)
+		fmt.Fprint(w, `{"error":"unavailable"}`)
+	}, WithErrorOnStatus(false), WithMaxRetries(2),
+		WithRetryDelay(time.Millisecond), WithMaxRetryDelay(time.Millisecond))
+	defer ts.Close()
+
+	resp, err := c.Get(context.Background(), "/down")
+	if err != nil {
+		t.Fatalf("expected nil error after retries with error-on-status disabled, got %v", err)
+	}
+	if resp == nil || !resp.IsServerError() || resp.StatusCode != 503 {
+		t.Fatalf("expected a 503 response, got %+v", resp)
+	}
+}
+
+func TestErrorOnStatusDisabled_TransportErrorStillErrors(t *testing.T) {
+	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {},
+		WithErrorOnStatus(false), WithMaxRetries(0))
+	// Close the server so the connection is refused: a transport failure, not
+	// a status error, must still surface even with error-on-status disabled.
+	ts.Close()
+
+	resp, err := c.Get(context.Background(), "/anything")
+	if err == nil {
+		t.Fatalf("expected a transport error, got resp=%+v", resp)
+	}
+}
+
+func TestRequestBuilder_ErrorOnStatusOverrideDisables(t *testing.T) {
+	// Client defaults to error-on-status enabled; the request opts out.
+	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		fmt.Fprint(w, `{"error":"nope"}`)
+	})
+	defer ts.Close()
+
+	resp, err := c.Request().Path("/missing").ErrorOnStatus(false).Get(context.Background())
+	if err != nil {
+		t.Fatalf("expected nil error from per-request override, got %v", err)
+	}
+	if resp == nil || !resp.IsClientError() {
+		t.Fatalf("expected a 4xx response, got %+v", resp)
+	}
+}
+
+func TestRequestBuilder_ErrorOnStatusOverrideEnables(t *testing.T) {
+	// Client defaults to error-on-status disabled; the request opts back in.
+	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		fmt.Fprint(w, `{"error":"nope"}`)
+	}, WithErrorOnStatus(false))
+	defer ts.Close()
+
+	resp, err := c.Request().Path("/missing").ErrorOnStatus(true).Get(context.Background())
+	if err == nil {
+		t.Fatal("expected an error from per-request override")
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) || he.StatusCode != 404 {
+		t.Fatalf("expected *HTTPError with 404, got %v", err)
+	}
+	// Step 1 guarantees the response is still available alongside the error.
+	if resp == nil || resp.StatusCode != 404 {
+		t.Fatalf("expected non-nil 404 response, got %+v", resp)
+	}
+}
+
+func TestRequestBuilder_NoOverrideUsesClientDefault(t *testing.T) {
+	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+	}, WithErrorOnStatus(false))
+	defer ts.Close()
+
+	_, err := c.Request().Path("/missing").Get(context.Background())
+	if err != nil {
+		t.Fatalf("expected client default (disabled) to apply, got %v", err)
 	}
 }
 
