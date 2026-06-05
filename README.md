@@ -1,0 +1,1013 @@
+# apikit
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/KARTIKrocks/apikit.svg)](https://pkg.go.dev/github.com/KARTIKrocks/apikit)
+[![Go Report Card](https://goreportcard.com/badge/github.com/KARTIKrocks/apikit)](https://goreportcard.com/report/github.com/KARTIKrocks/apikit)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/KARTIKrocks/apikit)](go.mod)
+[![CI](https://github.com/KARTIKrocks/apikit/actions/workflows/ci.yml/badge.svg)](https://github.com/KARTIKrocks/apikit/actions/workflows/ci.yml)
+[![GitHub tag](https://img.shields.io/github/v/tag/KARTIKrocks/apikit)](https://github.com/KARTIKrocks/apikit/releases)
+[![License](https://img.shields.io/github/license/KARTIKrocks/apikit)](LICENSE)
+[![codecov](https://codecov.io/gh/KARTIKrocks/apikit/branch/main/graph/badge.svg)](https://codecov.io/gh/KARTIKrocks/apikit)
+
+A production-ready Go toolkit for building REST APIs. Zero mandatory dependencies. Works with any `net/http` compatible router.
+
+## Features
+
+- **`errors`** — Structured API errors with `errors.Is`/`errors.As` support, error codes, and sentinel errors
+- **`request`** — Generic body binding (`Bind[T]`), query/path/header parsing, pagination, sorting, filtering
+- **`response`** — Consistent JSON envelope, fluent builder, pagination helpers, SSE streaming, XML, JSONP, and more
+- **`middleware`** — Request ID, logging, panic recovery, CORS, rate limiting, auth, security headers, timeout
+- **`httpclient`** — HTTP client with retries, exponential backoff, circuit breaker, and `HTTPClient` interface for mocking
+- **`router`** — Route grouping with method helpers, named routes, URL generation, parameter constraints, sub-router mounting, static file serving, and trailing-slash handling on top of `http.ServeMux`
+- **`server`** — Graceful shutdown wrapper with signal handling, lifecycle hooks, and TLS support
+- **`health`** — Health check endpoint builder with dependency checks, timeouts, and liveness/readiness probes
+- **`config`** — Load configuration from env vars, `.env` files, and JSON files into typed structs with validation
+- **`sqlbuilder`** — Fluent SQL query builder for PostgreSQL, MySQL, and SQLite with JOINs, CTEs, UNION, upsert, and `request` package integration
+- **`dbx`** — Generic row scanner for `database/sql` — eliminates scan boilerplate, maps rows to structs via `db` tags, integrates with `sqlbuilder`
+- **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
+
+## Install
+
+```bash
+go get github.com/KARTIKrocks/apikit
+```
+
+Requires **Go 1.22+**.
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/KARTIKrocks/apikit/errors"
+    "github.com/KARTIKrocks/apikit/middleware"
+    "github.com/KARTIKrocks/apikit/request"
+    "github.com/KARTIKrocks/apikit/response"
+    "github.com/KARTIKrocks/apikit/router"
+    "github.com/KARTIKrocks/apikit/server"
+)
+
+type CreateUserReq struct {
+    Name  string `json:"name" validate:"required,min=2"`
+    Email string `json:"email" validate:"required,email"`
+}
+
+func createUser(w http.ResponseWriter, r *http.Request) error {
+    req, err := request.Bind[CreateUserReq](r)
+    if err != nil {
+        return err // Automatically sends 400 with structured error
+    }
+
+    // Your business logic...
+    if req.Email == "taken@example.com" {
+        return errors.Conflict("Email already in use")
+    }
+
+    user := map[string]string{"id": "123", "name": req.Name}
+    response.Created(w, "User created", user)
+    return nil
+}
+
+func main() {
+    r := router.New()
+    r.Use(
+        middleware.RequestID(),
+        middleware.Recover(),
+        middleware.Timeout(30 * time.Second),
+    )
+
+    r.Post("/users", createUser)
+
+    // Graceful shutdown with signal handling (SIGINT/SIGTERM)
+    srv := server.New(r, server.WithAddr(":8080"))
+    srv.OnStart(func() error {
+        log.Println("server started...")
+        return nil
+    })
+    srv.OnShutdown(func(ctx context.Context) error {
+        log.Println("closing database...")
+        return nil // db.Close()
+    })
+    if err := srv.Start(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## Packages
+
+### errors
+
+Structured API errors that integrate with Go's standard `errors` package.
+
+```go
+import "github.com/KARTIKrocks/apikit/errors"
+
+// Create errors
+err := errors.NotFound("User")            // 404
+err := errors.BadRequest("Invalid input") // 400
+err := errors.Validation("Invalid", map[string]string{
+    "email": "is required",
+    "name":  "too short",
+}) // 422
+
+// Wrap underlying errors
+err := errors.Internal("Database failed").Wrap(dbErr)
+
+// Add details
+err := errors.Conflict("Duplicate").
+    WithField("email", "already exists").
+    WithDetail("existing_id", "abc123")
+
+// Check errors anywhere in your code
+if errors.Is(err, errors.ErrNotFound) { ... }
+if errors.Is(err, errors.ErrValidation) { ... }
+
+// Extract error details
+var apiErr *errors.Error
+if errors.As(err, &apiErr) {
+    log.Printf("Status: %d, Code: %s", apiErr.StatusCode, apiErr.Code)
+}
+
+// Custom error codes
+errors.RegisterCode("SUBSCRIPTION_EXPIRED", 402)
+err := errors.New("SUBSCRIPTION_EXPIRED", "Your subscription has expired")
+```
+
+### request
+
+Generic request binding and parameter parsing.
+
+```go
+import "github.com/KARTIKrocks/apikit/request"
+
+// --- Body binding ---
+type CreatePostReq struct {
+    Title string `json:"title"`
+    Body  string `json:"body"`
+}
+
+// Generic binding — auto-detects JSON, form, or multipart from Content-Type
+post, err := request.Bind[CreatePostReq](r)
+
+// Explicit JSON binding
+post, err := request.BindJSON[CreatePostReq](r)
+
+// --- HTML form binding ---
+type ContactForm struct {
+    Name    string `form:"name"    validate:"required"`
+    Email   string `form:"email"   validate:"required,email"`
+    Message string `form:"message" validate:"required,min=10"`
+}
+
+// Explicit form binding (application/x-www-form-urlencoded)
+form, err := request.BindForm[ContactForm](r)
+
+// Multipart form binding (multipart/form-data) with file uploads
+type UploadForm struct {
+    Title string `form:"title" validate:"required"`
+}
+meta, err := request.BindMultipart[UploadForm](r)
+fh, err := request.FormFile(r, "avatar")       // Single file
+allFiles := request.FormFiles(r)               // All uploaded files
+
+// --- Path parameters (Go 1.22+ stdlib routing) ---
+// Route: "GET /posts/{id}"
+id := request.PathParam(r, "id")
+id, err := request.PathParamInt(r, "id")
+
+// --- Query parameters ---
+q := request.QueryFrom(r)
+search := q.String("search", "")                // Default: ""
+page, err := q.Int("page", 1)                   // Default: 1
+active, err := q.Bool("active", true)            // Accepts: true/false/1/0/yes/no
+tags := q.StringSlice("tags")                    // ?tags=go,api → ["go", "api"]
+limit, err := q.IntRange("limit", 20, 1, 100)   // Clamped to [1, 100]
+
+// --- Headers ---
+token := request.BearerToken(r)                  // Extract Bearer token
+ip := request.ClientIP(r)                        // Respects X-Forwarded-For
+reqID := request.RequestID(r)                     // X-Request-ID or X-Trace-ID
+
+// --- Pagination ---
+pg, err := request.Paginate(r)                   // ?page=2&per_page=25
+// pg.Page=2, pg.PerPage=25, pg.Offset=25
+// Also detects ?page_size=25 and ?limit=25 automatically
+
+// Navigation helpers (need total count from your DB)
+pg.HasNext(total)                                // true if more pages exist
+pg.HasPrevious()                                 // true if not first page
+pg.TotalPages(total)                             // total number of pages
+pg.NextPage()                                    // next page number
+pg.PreviousPage()                                // previous page number (min 1)
+
+// SQL helpers
+pg.SQLClause()                                   // "LIMIT 25 OFFSET 25"
+pg.SQLClauseMySQL()                              // "LIMIT 25, 25"
+
+cursor, err := request.PaginateCursor(r)         // ?cursor=abc&limit=25
+
+// --- Sorting ---
+sorts, err := request.ParseSort(r, request.SortConfig{
+    AllowedFields: []string{"name", "created_at"},
+})
+// ?sort=name,-created_at → [{name, asc}, {created_at, desc}]
+
+// --- Filtering ---
+filters, err := request.ParseFilters(r, request.FilterConfig{
+    AllowedFields: []string{"status", "role"},
+})
+// ?filter[status]=active&filter[age][gte]=18
+
+// --- Struct tag validation (automatic in Bind[T]) ---
+type CreateUserReq struct {
+    Name  string `json:"name" validate:"required,min=2,max=100"`
+    Email string `json:"email" validate:"required,email"`
+    Role  string `json:"role" validate:"oneof=admin user mod"`
+}
+// Bind[T] automatically validates tags before returning.
+// Supported: required, email, url, min, max, len, oneof, alpha,
+//            alphanum, numeric, uuid, contains, startswith, endswith
+
+// --- Programmatic validation (for cross-field logic) ---
+v := request.NewValidation()
+v.RequireString("name", req.Name)
+v.RequireEmail("email", req.Email)
+v.RequireURL("website", req.Website)
+v.UUID("id", req.ID)
+v.MinLength("name", req.Name, 2)
+v.OneOf("role", req.Role, []string{"admin", "user", "mod"})
+v.MatchesPattern("code", req.Code, `^[A-Z]{3}-\d{4}$`, "must match format XXX-0000")
+v.Custom("end_date", func() bool {
+    return req.EndDate.After(req.StartDate)
+}, "must be after start_date")
+if err := v.Error(); err != nil {
+    return err // Returns structured 422 with field errors
+}
+```
+
+### response
+
+Consistent JSON responses with a standard envelope.
+
+```go
+import "github.com/KARTIKrocks/apikit/response"
+
+// --- Success responses ---
+response.OK(w, "Success", data)          // 200
+response.Created(w, "Created", data)     // 201
+response.Accepted(w, "Accepted", nil)    // 202
+response.NoContent(w)                    // 204
+
+// --- Error responses ---
+response.BadRequest(w, "Invalid input")
+response.Unauthorized(w, "Login required")
+response.NotFound(w, "User not found")
+response.ValidationError(w, map[string]string{"email": "required"})
+
+// --- From errors package (recommended) ---
+response.Err(w, errors.NotFound("User"))
+response.Err(w, err) // Any error — *errors.Error gets proper status, others get 500
+
+// --- Builder pattern ---
+response.New().
+    Status(201).
+    Message("Created").
+    Data(user).
+    Header("X-Resource-ID", user.ID).
+    Pagination(1, 20, 150).
+    Send(w)
+
+// --- Paginated ---
+response.Paginated(w, users, response.NewPageMeta(page, perPage, total))
+// NewPageMeta auto-computes TotalPages, HasNext, and HasPrevious
+
+// Link header (RFC 5988) for API clients
+response.SetLinkHeader(w, "https://api.example.com/users", page, perPage, total)
+// Link: <...?page=2&per_page=20>; rel="next", <...?page=1&per_page=20>; rel="first", ...
+
+response.CursorPaginated(w, events, response.CursorMeta{
+    NextCursor: "eyJpZCI6MTAwfQ==",
+    HasMore:    true,
+})
+
+// --- Streaming (SSE) ---
+response.StreamJSON(w, func(send func(event string, data any) error) error {
+    for msg := range messages {
+        send("update", msg)
+    }
+    return nil
+})
+
+// --- Other formats ---
+response.XML(w, 200, xmlData)                              // XML with <?xml?> header
+response.IndentedJSON(w, 200, data)                        // Pretty-printed JSON
+response.PureJSON(w, 200, data)                            // No HTML escaping of <, >, &
+response.JSONP(w, r, 200, data)                            // JSONP (reads ?callback=)
+response.Reader(w, 200, "image/png", size, imgReader)      // Stream from io.Reader
+response.HTML(w, 200, "<h1>Hello</h1>")                    // HTML
+response.Text(w, 200, "OK")                                // Plain text
+response.Raw(w, 200, "application/csv", csvBytes)          // Raw bytes
+
+// --- Handler wrapper ---
+// Converts func(w, r) error → http.HandlerFunc
+mux.HandleFunc("GET /users/{id}", response.Handle(getUser))
+```
+
+**Response envelope format:**
+
+```json
+{
+  "success": true,
+  "message": "User created",
+  "data": { "id": "123", "name": "Alice" },
+  "meta": {
+    "page": 1,
+    "per_page": 20,
+    "total": 150,
+    "total_pages": 8,
+    "has_next": true,
+    "has_previous": false
+  },
+  "timestamp": 1700000000
+}
+```
+
+### router
+
+Route grouping and method helpers on top of `http.ServeMux`.
+
+```go
+import "github.com/KARTIKrocks/apikit/router"
+
+// Create a router (implements http.Handler)
+r := router.New()
+
+// Global middleware
+r.Use(middleware.RequestID(), middleware.Logger(slog.Default()))
+
+// Method helpers — handlers return error
+r.Get("/health", func(w http.ResponseWriter, r *http.Request) error {
+    response.OK(w, "OK", nil)
+    return nil
+})
+
+// Standard http.HandlerFunc (no error return) — use GetFunc/PostFunc/etc.
+r.GetFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+    response.OK(w, "OK", map[string]string{"version": "1.0.0"})
+})
+
+// Route groups with prefix and per-group middleware
+api := r.Group("/api/v1", authMiddleware)
+api.Get("/users", listUsers)
+api.Post("/users", createUser)
+api.GetFunc("/users/{id}", getUser)     // stdlib handler
+
+// Nested groups accumulate prefix and middleware
+admin := api.Group("/admin", adminOnly)
+admin.Delete("/users/{id}", deleteUser)
+// Registers "DELETE /api/v1/admin/users/{id}" with auth + adminOnly middleware
+
+// Handle/HandleFunc for http.Handler (e.g. file servers)
+api.Handle("GET /docs", http.FileServer(http.Dir("./docs")))
+
+// --- Named routes & URL generation ---
+r.Get("/users/{id}", getUser).Name("get-user")
+r.Get("/files/{path...}", serveFile).Name("files")
+
+url := r.URL("get-user", "id", "42")       // "/users/42"
+url = r.URL("files", "path", "docs/readme") // "/files/docs/readme"
+
+// --- Inline sub-routing with Route() ---
+r.Route("/users", func(sub *router.Group) {
+    sub.Get("/", listUsers)
+    sub.Get("/{id}", getUser)
+    sub.Post("/", createUser)
+})
+
+// --- Per-route middleware with With() ---
+r.With(authMiddleware).Get("/admin", adminHandler)
+
+// --- Mount sub-routers ---
+adminRouter := router.New()
+adminRouter.Get("/stats", statsHandler)
+r.Mount("/admin", adminRouter) // routes & named routes are merged
+
+// --- Static files ---
+r.Static("/assets", "./public")        // serve directory
+r.File("/favicon.ico", "./favicon.ico") // serve single file
+
+// --- Parameter constraints ---
+r.Get("/users/{id}", router.ValidateParams(getUser,
+    router.Int("id"),
+))
+r.Get("/items/{slug}", router.ValidateParams(getItem,
+    router.Regex("slug", `^[a-z0-9-]+$`),
+))
+r.Get("/status/{s}", router.ValidateParams(getStatus,
+    router.OneOf("s", "active", "inactive", "pending"),
+))
+
+// --- Trailing slash handling ---
+r = router.New(router.WithStripSlash())    // "/users/" → "/users" (silent)
+r = router.New(router.WithRedirectSlash()) // "/users/" → 301 → "/users"
+
+// --- Custom 404/405 handlers ---
+r = router.New(
+    router.WithNotFound(custom404Handler),
+    router.WithMethodNotAllowed(custom405Handler),
+)
+
+// --- Error handling & logging ---
+// Handlers return error; the router's error handler writes the JSON envelope.
+// DefaultErrorHandler logs server errors via slog.Default() so the wrapped
+// cause of an Internal/Internalf error is never silently dropped — only the
+// safe message reaches the client.
+r.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+    if err := db.Save(u); err != nil {
+        // Client sees "could not save user"; the cause (err) is logged, not sent.
+        return errors.Internalf(err, "could not save user")
+    }
+    return nil
+})
+// Logging policy: status >= 500 logs at Error; a 4xx that wraps a cause logs at
+// Warn; plain 4xx are not logged.
+
+// Inject your own logger instead of slog.Default():
+r = router.New(router.WithErrorHandler(router.NewErrorHandler(myLogger)))
+
+// Or take full control of the response with a custom handler:
+r = router.New(router.WithErrorHandler(func(w http.ResponseWriter, req *http.Request, err error) {
+    // write whatever you want
+}))
+
+// --- Route introspection ---
+for _, ri := range r.Routes() {
+    fmt.Printf("%s %s → %s\n", ri.Method, ri.Pattern, ri.HandlerName)
+}
+r.Walk(func(ri router.RouteInfo) error {
+    // ...
+    return nil
+})
+
+// Use with server package
+srv := server.New(r, server.WithAddr(":8080"))
+srv.Start()
+```
+
+Middleware is resolved at registration time. `Use()` only applies to routes registered after the call, matching chi/echo/gin behavior.
+
+### middleware
+
+Production-ready middleware that works with any `net/http` router.
+
+```go
+import "github.com/KARTIKrocks/apikit/middleware"
+
+// Chain middleware (applied in order)
+stack := middleware.Chain(
+    middleware.RequestID(),
+    middleware.Logger(slog.Default()),
+    middleware.Recover(),
+    middleware.SecureHeaders(),
+    middleware.CORS(middleware.DefaultCORSConfig()),
+    middleware.RateLimit(middleware.RateLimitConfig{Rate: 100, Window: time.Minute}),
+    middleware.Timeout(30 * time.Second),
+    middleware.BodyLimit(5 << 20), // 5 MB
+)
+handler := stack(mux)
+
+// --- Authentication ---
+auth := middleware.Auth(middleware.AuthConfig{
+    Authenticate: func(ctx context.Context, token string) (any, error) {
+        user, err := verifyJWT(token)
+        if err != nil {
+            return nil, errors.Unauthorized("Invalid token")
+        }
+        return user, nil
+    },
+    SkipPaths: map[string]bool{"/health": true, "/login": true},
+})
+
+// In handlers, retrieve the user:
+user, ok := middleware.GetAuthUserAs[*User](r.Context())
+
+// --- Get request ID anywhere ---
+reqID := middleware.GetRequestID(r.Context())
+
+// --- Custom rate limiter backend ---
+type RedisLimiter struct { ... }
+func (rl *RedisLimiter) Allow(key string) bool { ... }
+
+middleware.RateLimit(middleware.RateLimitConfig{
+    Limiter: &RedisLimiter{},
+})
+```
+
+### httpclient
+
+HTTP client with retries, exponential backoff, circuit breaker, and an interface for easy mocking.
+
+```go
+import "github.com/KARTIKrocks/apikit/httpclient"
+
+// Create a client with functional options
+client := httpclient.New("https://api.example.com",
+    httpclient.WithTimeout(10 * time.Second),
+    httpclient.WithMaxRetries(3),
+    httpclient.WithRetryDelay(500 * time.Millisecond),
+    httpclient.WithMaxRetryDelay(5 * time.Second),
+    httpclient.WithLogger(slog.Default()),
+)
+
+// Basic requests
+resp, err := client.Get(ctx, "/users")
+resp, err := client.Post(ctx, "/users", map[string]string{"name": "Alice"})
+resp, err := client.Put(ctx, "/users/1", updateBody)
+resp, err := client.Patch(ctx, "/users/1", patchBody)
+resp, err := client.Delete(ctx, "/users/1")
+
+// Response helpers
+var users []User
+resp.JSON(&users)
+fmt.Println(resp.String(), resp.StatusCode, resp.IsSuccess())
+
+// Set default headers
+client.SetBearerToken("my-token")
+client.SetHeader("X-API-Key", "key")
+
+// Fluent request builder
+resp, err := client.Request().
+    Method("POST").
+    Path("/search").
+    Header("X-Custom", "value").
+    Param("q", "golang").
+    Body(searchReq).
+    Send(ctx)
+
+// Enable circuit breaker (opens after 5 failures, resets after 30s)
+client := httpclient.New("https://api.example.com",
+    httpclient.WithCircuitBreaker(5, 30 * time.Second),
+)
+
+// --- Error handling on non-2xx ---
+// By default a 4xx/5xx status returns an *HTTPError alongside the response.
+// The response is always returned too (even after retries are exhausted), so
+// you can inspect the status and read the error body without unwrapping.
+resp, err := client.Get(ctx, "/users/999")
+if err != nil {
+    var httpErr *httpclient.HTTPError
+    if errors.As(err, &httpErr) {
+        fmt.Println(httpErr.StatusCode, string(httpErr.Body))
+    }
+    // resp is still non-nil: resp.IsClientError(), resp.JSON(&apiErr), etc.
+}
+
+// Opt out of error-on-status for services that return structured error bodies.
+// Non-2xx then returns (resp, nil); branch on the response yourself. Retries on
+// 5xx still happen; transport/context/circuit-breaker failures still error.
+client := httpclient.New("https://api.example.com",
+    httpclient.WithErrorOnStatus(false),
+)
+resp, err := client.Get(ctx, "/users/999") // err == nil on 404
+if err == nil && resp.IsClientError() {
+    var apiErr APIError
+    resp.JSON(&apiErr)
+}
+
+// Override the policy for a single request via the builder.
+resp, err = client.Request().Path("/pay").ErrorOnStatus(true).Post(ctx)
+
+// --- Mocking in tests ---
+// HTTPClient interface allows easy substitution
+func fetchUsers(client httpclient.HTTPClient) ([]User, error) { ... }
+
+// In tests:
+mock := httpclient.NewMockClient()
+mock.OnGet("/users", 200, []byte(`[{"id":1,"name":"Alice"}]`))
+mock.OnPost("/users", 201, []byte(`{"id":2}`))
+mock.OnError("GET", "/fail", fmt.Errorf("connection refused"))
+
+users, err := fetchUsers(mock)
+fmt.Println(mock.GetCallCount()) // 1
+```
+
+### server
+
+Production-ready HTTP server with graceful shutdown, signal handling, and lifecycle hooks.
+
+```go
+import "github.com/KARTIKrocks/apikit/server"
+
+srv := server.New(handler,
+    server.WithAddr(":8080"),
+    server.WithReadTimeout(15 * time.Second),
+    server.WithWriteTimeout(60 * time.Second),
+    server.WithIdleTimeout(120 * time.Second),
+    server.WithShutdownTimeout(10 * time.Second),
+    server.WithLogger(slog.Default()),
+)
+
+// HTTPS — just add WithTLS
+srv := server.New(handler,
+    server.WithAddr(":443"),
+    server.WithTLS("cert.pem", "key.pem"),
+)
+
+// Lifecycle hooks
+srv.OnStart(func() error {
+    slog.Info("connecting to database...")
+    return db.Connect()
+})
+srv.OnShutdown(func(ctx context.Context) error {
+    return db.Close()
+})
+
+// Blocks until SIGINT/SIGTERM, then drains connections gracefully
+if err := srv.Start(); err != nil {
+    log.Fatal(err)
+}
+```
+
+### health
+
+Health check endpoints for Kubernetes probes and load balancers.
+
+```go
+import "github.com/KARTIKrocks/apikit/health"
+
+// Create a checker with a per-check timeout
+h := health.NewChecker(health.WithTimeout(3 * time.Second))
+
+// Critical checks — failure → "unhealthy" (503)
+h.AddCheck("postgres", func(ctx context.Context) error {
+    return db.PingContext(ctx)
+})
+
+// Non-critical checks — failure → "degraded" (200)
+h.AddNonCriticalCheck("redis", func(ctx context.Context) error {
+    return rdb.Ping(ctx).Err()
+})
+
+// Register with your router
+r.Get("/health", h.Handler())          // Full check (readiness)
+r.Get("/health/live", h.LiveHandler()) // Always 200 (liveness)
+
+// Programmatic use
+resp := h.Check(context.Background())
+fmt.Println(resp.Status) // "healthy", "degraded", or "unhealthy"
+```
+
+**Response format:**
+
+```json
+{
+  "success": true,
+  "message": "Health check",
+  "data": {
+    "status": "healthy",
+    "checks": {
+      "postgres": { "status": "healthy", "duration_ms": 2 },
+      "redis": { "status": "healthy", "duration_ms": 1 }
+    },
+    "timestamp": 1700000000
+  },
+  "timestamp": 1700000000
+}
+```
+
+### config
+
+Load application configuration from environment variables, `.env` files, and JSON config files into typed Go structs.
+
+```go
+import "github.com/KARTIKrocks/apikit/config"
+
+type AppConfig struct {
+    Host     string        `env:"HOST"      default:"localhost"  validate:"required"`
+    Port     int           `env:"PORT"      default:"8080"       validate:"required,min=1,max=65535"`
+    Debug    bool          `env:"DEBUG"     default:"false"`
+    DBUrl    string        `env:"DB_URL"    validate:"required,url"`
+    LogLevel string        `env:"LOG_LEVEL" default:"info"       validate:"oneof=debug info warn error"`
+    Timeout  time.Duration `env:"TIMEOUT"   default:"30s"`
+    Tags     []string      `env:"TAGS"`
+}
+
+var cfg AppConfig
+config.MustLoad(&cfg,
+    config.WithPrefix("APP"),           // reads APP_HOST, APP_PORT, etc.
+    config.WithEnvFile(".env"),          // load .env file (won't override real env vars)
+    config.WithJSONFile("config.json"), // JSON as base layer
+)
+
+// Sources are applied in priority order:
+// 1. Environment variables (highest)
+// 2. .env file
+// 3. JSON file
+// 4. default:"..." tags (lowest)
+```
+
+Nested structs are flattened automatically:
+
+```go
+type Config struct {
+    DB struct {
+        Host string `env:"HOST" default:"localhost"`
+        Port int    `env:"PORT" default:"5432"`
+    }
+}
+
+// Reads DB_HOST, DB_PORT (or APP_DB_HOST, APP_DB_PORT with WithPrefix("APP"))
+```
+
+Embedded structs are transparent — no extra prefix:
+
+```go
+type Base struct {
+    Env string `env:"ENV" default:"development"`
+}
+type Config struct {
+    Base                                          // reads ENV, not BASE_ENV
+    Host string `env:"HOST" default:"localhost"`
+}
+```
+
+Use `envprefix` to override the auto-generated nesting prefix:
+
+```go
+type Config struct {
+    Database DBConfig `envprefix:"DB_"` // reads DB_URL instead of DATABASE_URL
+    JWT      JWTConfig `envprefix:"-"`  // no prefix — inner env tags used as-is
+}
+```
+
+### sqlbuilder
+
+Fluent SQL query builder for PostgreSQL, MySQL, and SQLite. Produces `(string, []any)` pairs — no `database/sql` dependency.
+
+```go
+import "github.com/KARTIKrocks/apikit/sqlbuilder"
+
+// --- SELECT ---
+sql, args := sqlbuilder.Select("id", "name", "email").
+    From("users").
+    Where("active = $1", true).
+    OrderBy("name ASC").
+    Limit(20).
+    Build()
+// sql:  "SELECT id, name, email FROM users WHERE active = $1 ORDER BY name ASC LIMIT 20"
+// args: [true]
+
+// Convenience Where helpers — no placeholder syntax needed
+sql, args := sqlbuilder.Select("id").From("users").
+    WhereEq("status", "active").
+    WhereGt("age", 18).
+    WhereLike("name", "A%").
+    Build()
+// sql:  "SELECT id FROM users WHERE status = $1 AND age > $2 AND name LIKE $3"
+// args: ["active", 18, "A%"]
+// Also: WhereNeq, WhereGte, WhereLt, WhereLte, WhereILike
+
+// OrderBy helpers
+sql, _ = sqlbuilder.Select("id").From("users").
+    OrderByAsc("name").
+    OrderByDesc("created_at").
+    Build()
+// sql: "SELECT id FROM users ORDER BY name ASC, created_at DESC"
+
+// Placeholder rebasing — each Where uses $1-relative numbering
+sql, args = sqlbuilder.Select("id").From("users").
+    Where("status = $1", "active").
+    Where("age > $1", 18).
+    Build()
+// sql:  "SELECT id FROM users WHERE status = $1 AND age > $2"
+// args: ["active", 18]
+
+// JOINs, GROUP BY, HAVING
+sql, args := sqlbuilder.Select("u.id", "COUNT(o.id) as orders").
+    From("users u").
+    LeftJoin("orders o", "o.user_id = u.id").
+    Where("u.active = $1", true).
+    GroupBy("u.id").
+    Having("COUNT(o.id) > $1", 5).
+    Build()
+
+// Aggregate helpers
+sql, _ = sqlbuilder.SelectExpr(
+    sqlbuilder.Count("*").As("total"),
+    sqlbuilder.Avg("price").As("avg_price"),
+).From("products").Build()
+// sql: "SELECT COUNT(*) AS total, AVG(price) AS avg_price FROM products"
+
+// Subquery conditions
+sub := sqlbuilder.Select("user_id").From("orders").Where("total > $1", 100)
+sql, args = sqlbuilder.Select("id", "name").From("users").
+    WhereInSubquery("id", sub).
+    Build()
+// sql:  "SELECT id, name FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > $1)"
+// args: [100]
+
+// Subqueries, CTEs, UNION, FOR UPDATE
+sql, _ := sqlbuilder.Select("id").From("users").ForUpdate().SkipLocked().Build()
+q1 := sqlbuilder.Select("id").From("users")
+q2 := sqlbuilder.Select("id").From("admins")
+sql, _ = q1.Union(q2).Build()
+
+// Conditional building — only applies the clause when the condition is true
+sql, args = sqlbuilder.Select("id").From("users").
+    When(onlyActive, func(s *sqlbuilder.SelectBuilder) {
+        s.Where("active = $1", true)
+    }).Build()
+
+// Clone for safe reuse — mutations to the clone don't affect the original
+base := sqlbuilder.Select("id", "name").From("users").Where("active = $1", true)
+adminQuery := base.Clone().Where("role = $1", "admin")
+userQuery := base.Clone().Where("role = $1", "user")
+
+// --- INSERT ---
+sql, args := sqlbuilder.Insert("users").
+    Columns("name", "email").
+    Values("Alice", "alice@example.com").
+    Returning("id").
+    Build()
+
+// Batch insert
+sql, args := sqlbuilder.Insert("users").
+    Columns("name", "email").
+    Values("Alice", "alice@example.com").
+    Values("Bob", "bob@example.com").
+    Build()
+
+// Upsert (ON CONFLICT)
+sql, args := sqlbuilder.Insert("users").
+    Columns("email", "name").
+    Values("alice@example.com", "Alice").
+    OnConflictUpdate([]string{"email"}, map[string]any{"name": "Alice Updated"}).
+    Build()
+
+// --- UPDATE ---
+sql, args := sqlbuilder.Update("users").
+    Set("name", "Bob").
+    SetExpr("updated_at", sqlbuilder.Raw("NOW()")).
+    WhereEq("id", 1).
+    Build()
+
+// Increment / Decrement
+sql, args = sqlbuilder.Update("products").
+    Increment("view_count", 1).
+    WhereEq("id", 42).
+    Build()
+// sql:  "UPDATE products SET view_count = view_count + $1 WHERE id = $2"
+// args: [1, 42]
+
+// --- DELETE ---
+sql, args := sqlbuilder.Delete("users").
+    WhereEq("id", 1).
+    Returning("id", "name").
+    Build()
+
+// --- MySQL / SQLite dialect ---
+sql, args = sqlbuilder.Select("id", "name").
+    From("users").
+    WhereEq("active", true).
+    WhereGt("age", 18).
+    SetDialect(sqlbuilder.MySQL). // or sqlbuilder.SQLite
+    Build()
+// sql:  "SELECT id, name FROM users WHERE active = ? AND age > ?"
+// args: [true, 18]
+
+// Dialect-first constructors
+sql, args = sqlbuilder.SelectWith(sqlbuilder.MySQL, "id").
+    From("users").WhereEq("id", 1).Build()
+// sql: "SELECT id FROM users WHERE id = ?"
+
+sql, args = sqlbuilder.InsertWith(sqlbuilder.MySQL, "users").
+    Columns("name", "email").
+    Values("Alice", "alice@example.com").
+    Build()
+// sql: "INSERT INTO users (name, email) VALUES (?, ?)"
+
+// --- Integration with request package ---
+pg, _ := request.Paginate(r)
+sorts, _ := request.ParseSort(r, sortCfg)
+filters, _ := request.ParseFilters(r, filterCfg)
+
+cols := map[string]string{"name": "u.name", "created_at": "u.created_at"}
+
+sql, args := sqlbuilder.Select("u.id", "u.name", "u.email").
+    From("users u").
+    LeftJoin("profiles p", "p.user_id = u.id").
+    Where("u.active = $1", true).
+    ApplyFilters(filters, cols).
+    ApplySort(sorts, cols).
+    ApplyPagination(pg).
+    Build()
+```
+
+### dbx
+
+Lightweight, generic row scanner for `database/sql`. Eliminates scan boilerplate while keeping full SQL control.
+
+```go
+import "github.com/KARTIKrocks/apikit/dbx"
+
+// Set default connection once at startup
+dbx.SetDefault(db)
+
+// Define your struct with db tags
+type User struct {
+    ID    int     `db:"id"`
+    Name  string  `db:"name"`
+    Email *string `db:"email"` // nullable → pointer
+}
+
+// --- Fetch rows ---
+users, err := dbx.QueryAll[User](ctx, "SELECT id, name, email FROM users WHERE active = $1", true)
+
+// --- Fetch one row (returns errors.CodeNotFound if no rows) ---
+user, err := dbx.QueryOne[User](ctx, "SELECT id, name, email FROM users WHERE id = $1", 42)
+
+// --- Execute statements ---
+result, err := dbx.Exec(ctx, "DELETE FROM users WHERE id = $1", 42)
+
+// --- sqlbuilder integration ---
+q := sqlbuilder.Select("id", "name", "email").
+    From("users").
+    WhereEq("active", true).
+    Build()
+users, err := dbx.QueryAllQ[User](ctx, q)
+
+// --- Transactions (context-based) ---
+tx, _ := db.BeginTx(ctx, nil)
+ctx = dbx.WithTx(ctx, tx)
+
+dbx.Exec(ctx, "INSERT INTO users (name) VALUES ($1)", "Alice")        // uses tx
+user, err := dbx.QueryOne[User](ctx, "SELECT id, name FROM users WHERE name = $1", "Alice") // uses tx
+tx.Commit()
+```
+
+Column matching is order-independent. Unmatched result columns are silently discarded. Embedded structs (including pointer embeds) are supported. Type mappings are cached per-type via `sync.Map`.
+
+### apitest
+
+Fluent test helpers for building requests and asserting responses against your handlers.
+
+```go
+import "github.com/KARTIKrocks/apikit/apitest"
+
+// Build a request
+req := apitest.NewRequest("POST", "/users").
+    WithBody(map[string]string{"name": "Alice"}).
+    WithBearerToken("valid-token").
+    WithHeader("X-Request-ID", "test-123").
+    WithQuery("notify", "true").
+    WithPathValue("id", "42").
+    Build()
+
+// Record handler response
+resp := apitest.RecordHandler(createUser, req)
+
+// Fluent assertions
+resp.AssertStatus(t, 201)
+resp.AssertSuccess(t)
+resp.AssertHeader(t, "X-Request-ID", "test-123")
+resp.AssertBodyContains(t, "Alice")
+resp.AssertError(t, "NOT_FOUND")
+resp.AssertValidationError(t, "email")
+
+// Decode response
+var user User
+resp.Decode(&user)
+
+// Access envelope directly
+env, _ := resp.Envelope()
+fmt.Println(env.Success, env.Message)
+```
+
+## Design Principles
+
+| Principle             | How                                                            |
+| --------------------- | -------------------------------------------------------------- |
+| **stdlib compatible** | Works with `http.Handler`, `http.HandlerFunc`, any router      |
+| **Zero dependencies** | Core uses only the Go standard library                         |
+| **Generics**          | `Bind[T]`, `GetAuthUserAs[T]` for type safety                  |
+| **Interface-driven**  | `RateLimiter`, `Logger` interfaces — plug in your own backends |
+| **Composable**        | Each package is independently usable                           |
+| **Go 1.22+**          | Leverages enhanced `http.ServeMux` routing                     |
+
+## Roadmap
+
+- [x] `health` — Health check endpoint builder with dependency checks
+- [x] `sqlbuilder` — Fluent SQL query builder with request package integration
+- [x] `dbx` — Generic row scanner for `database/sql` with `sqlbuilder` integration
+- [ ] `ctxutil` — Typed context helpers
+- [ ] `observe` — OpenTelemetry integration
+
+## License
+
+[MIT](LICENSE)
