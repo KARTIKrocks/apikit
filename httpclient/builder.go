@@ -13,6 +13,10 @@ type RequestBuilder struct {
 	body    any
 	headers map[string]string
 	params  map[string]string
+
+	// errorOnStatus overrides the client's error-on-status policy for this
+	// request when non-nil.
+	errorOnStatus *bool
 }
 
 // Method sets the HTTP method
@@ -67,6 +71,13 @@ func (rb *RequestBuilder) BearerToken(token string) *RequestBuilder {
 	return rb
 }
 
+// ErrorOnStatus overrides the client's error-on-status policy for this request.
+// See WithErrorOnStatus for the semantics. When unset, the client default applies.
+func (rb *RequestBuilder) ErrorOnStatus(enabled bool) *RequestBuilder {
+	rb.errorOnStatus = &enabled
+	return rb
+}
+
 // Send executes the request
 func (rb *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	// Build query string
@@ -79,7 +90,12 @@ func (rb *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		path += "?" + values.Encode()
 	}
 
-	return rb.client.doRequest(ctx, rb.method, path, rb.body, rb.headers)
+	errorOnStatus := rb.client.errorOnStatus
+	if rb.errorOnStatus != nil {
+		errorOnStatus = *rb.errorOnStatus
+	}
+
+	return rb.client.do(ctx, rb.method, path, rb.body, rb.headers, errorOnStatus)
 }
 
 // Get is a shorthand for Method("GET").Send()
