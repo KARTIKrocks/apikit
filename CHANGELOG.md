@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-06-05
+
+### Fixed
+
+- **router** — CORS preflight requests are no longer dropped. A browser preflight is an `OPTIONS` request, but handlers register concrete methods (`GET`, `POST`, …), so `ServeMux` answered the preflight with `405` before any handler ran — meaning `middleware.CORS` added via `Router.Use` never saw it and no `Access-Control-*` headers were sent, so the browser blocked the real request. The router now runs the 404/405 fallback through the root group's middleware, so `r.Use(middleware.CORS(...))` handles preflights and the actual cross-origin request works with no extra wiring
+
+### Changed
+
+- **router** — Root middleware registered via `Router.Use` now runs on the 404/405 fallback path (previously it ran only for matched routes). This makes cross-cutting middleware such as CORS, `RequestID`, and `Logger` apply to unmatched requests, so error responses carry the same headers as matched ones. Custom `WithNotFound` / `WithMethodNotAllowed` handlers still take precedence over the `ErrorHandler` and now execute inside the middleware chain
+
 ## [0.19.0] - 2026-06-05
 
 ### Added

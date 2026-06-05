@@ -553,6 +553,89 @@ func TestMethodNotAllowedReturnsJSON(t *testing.T) {
 	}
 }
 
+func TestRootMiddlewareRunsOnNotFound(t *testing.T) {
+	r := New()
+	r.Use(headerMiddleware("X-Root", "yes"))
+	r.Get("/exists", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+
+	rec := doRequest(r, "GET", "/missing")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-Root") != "yes" {
+		t.Error("expected root middleware to run on 404 fallback")
+	}
+}
+
+func TestRootMiddlewareRunsOnMethodNotAllowed(t *testing.T) {
+	r := New()
+	r.Use(headerMiddleware("X-Root", "yes"))
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+
+	rec := doRequest(r, "POST", "/users")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+	if rec.Header().Get("X-Root") != "yes" {
+		t.Error("expected root middleware to run on 405 fallback")
+	}
+}
+
+// TestCORSPreflightReachesMiddleware is the regression test for the bug where a
+// browser CORS preflight (OPTIONS) was answered by ServeMux with 405 before the
+// CORS middleware registered via Use could run, so no Access-Control-* headers
+// were emitted and the browser blocked the real request.
+func TestCORSPreflightReachesMiddleware(t *testing.T) {
+	r := New()
+	r.Use(middleware.CORS(middleware.DefaultCORSConfig()))
+	r.Post("/api/run", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("OPTIONS", "/api/run", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight: expected 204, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("preflight: expected Access-Control-Allow-Origin=*, got %q", got)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
+		t.Errorf("preflight: expected Allow-Methods to include POST, got %q", got)
+	}
+}
+
+// TestCORSHeadersOnCrossOriginMethodNotAllowed verifies the actual (non-preflight)
+// cross-origin error response also carries CORS headers so the JS caller can read it.
+func TestCORSHeadersOnCrossOriginMethodNotAllowed(t *testing.T) {
+	r := New()
+	r.Use(middleware.CORS(middleware.DefaultCORSConfig()))
+	r.Get("/api/data", func(w http.ResponseWriter, req *http.Request) error {
+		return nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/data", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("expected Access-Control-Allow-Origin=* on 405, got %q", got)
+	}
+}
+
 func TestHandlerWriting404IsNotIntercepted(t *testing.T) {
 	r := New()
 	r.Get("/custom-404", func(w http.ResponseWriter, req *http.Request) error {
