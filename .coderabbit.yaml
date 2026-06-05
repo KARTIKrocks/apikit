@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration for apikit (github.com/KARTIKrocks/apikit)
+# Docs: https://docs.coderabbit.ai/reference/configuration
+language: en-US
+early_access: false
+
+reviews:
+  # "assertive" surfaces more substantive feedback than the default "chill".
+  # Good for a library where API quality and correctness matter.
+  profile: assertive
+
+  # Don't block merges; CI (vet/lint/test) is the gate. CodeRabbit advises.
+  request_changes_workflow: false
+
+  high_level_summary: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  poem: true
+
+  # Report review status as a GitHub commit status, but never fail the build.
+  review_status: true
+  commit_status: true
+  fail_commit_status: false
+
+  suggested_reviewers: true
+  suggested_labels: true
+  auto_apply_labels: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - main
+    # Skip release/automation PRs that don't need a human-style review.
+    ignore_title_keywords:
+      - "wip"
+      - "release"
+    ignore_usernames:
+      - "dependabot[bot]"
+
+  # Let the bot offer docstrings and test scaffolding, but not auto-simplify.
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+
+  # Exclude noise from review scope. CodeRabbit still has full repo context.
+  path_filters:
+    - "!**/*.pb.go"
+    - "!**/mock_*.go"
+    - "!**/*_mock.go"
+    - "!**/testdata/**"
+    - "!CHANGELOG.md"
+    - "!go.sum"
+    - "!**/vendor/**"
+
+  # Package-aware guidance so reviews match this library's conventions.
+  path_instructions:
+    - path: "**/*.go"
+      instructions: >-
+        Idiomatic Go review. Verify errors are wrapped with %w and never
+        silently ignored. Check that exported identifiers have doc comments
+        starting with the identifier name. Flag goroutine leaks, missing
+        context.Context propagation, unclosed resources (Body/rows/files),
+        and data races on shared state. Prefer the standard library and
+        avoid new third-party dependencies in this library.
+    - path: "**/*_test.go"
+      instructions: >-
+        Prefer table-driven tests and t.Parallel() where safe. Tests must be
+        deterministic and run cleanly under -race. Use t.Cleanup for teardown.
+        Flag assertions that don't actually test behavior.
+    - path: "httpclient/**"
+      instructions: >-
+        Scrutinize timeout/retry/backoff handling, response body closing,
+        and propagation of non-2xx status errors. Ensure context cancellation
+        is honored on every request path.
+    - path: "router/**/*.go"
+      instructions: >-
+        Check middleware ordering, panic recovery, and CORS/preflight
+        handling. Confirm unmatched routes and error paths are covered.
+    - path: "examples/**"
+      instructions: >-
+        Examples are illustrative; relax error-handling strictness but ensure
+        they compile and demonstrate correct API usage.
+
+  tools:
+    # Reuse the repo's existing golangci-lint v2 ruleset; no duplication.
+    golangci-lint:
+      enabled: true
+      config_file: .golangci.yml
+    # Secret scanning on every PR.
+    gitleaks:
+      enabled: true
+    # Lint GitHub Actions workflows and Markdown docs.
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  # Learn this repo's review patterns over time and pull in linked issues/PRs.
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
+  web_search:
+    enabled: true
