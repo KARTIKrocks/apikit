@@ -412,6 +412,9 @@ func TestLoad_JSONFileMissing_NotRequired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error for missing optional JSON file, got: %v", err)
 	}
+	if c.Host != "fallback" {
+		t.Errorf("Host = %q, want %q", c.Host, "fallback")
+	}
 }
 
 func TestLoad_JSONFileMissing_Required(t *testing.T) {

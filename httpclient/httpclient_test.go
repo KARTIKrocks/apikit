@@ -34,7 +34,7 @@ func TestGet(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, `{"ok":true}`)
 	})
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Get(context.Background(), "/ping")
 	if err != nil {
@@ -50,16 +50,21 @@ func TestPost(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("failed to read body: %v", err)
+		}
 		var m map[string]string
-		json.Unmarshal(body, &m)
+		if err := json.Unmarshal(body, &m); err != nil {
+			t.Fatalf("failed to unmarshal body: %v", err)
+		}
 		if m["name"] != "test" {
 			t.Fatalf("unexpected body: %s", body)
 		}
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"id":1}`)
 	})
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Post(context.Background(), "/items", map[string]string{"name": "test"})
 	if err != nil {
@@ -77,7 +82,7 @@ func TestPut(t *testing.T) {
 		}
 		w.WriteHeader(200)
 	})
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Put(context.Background(), "/items/1", map[string]string{"name": "updated"})
 	if err != nil {
@@ -95,7 +100,7 @@ func TestPatch(t *testing.T) {
 		}
 		w.WriteHeader(200)
 	})
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Patch(context.Background(), "/items/1", map[string]string{"name": "patched"})
 	if err != nil {
@@ -113,7 +118,7 @@ func TestDelete(t *testing.T) {
 		}
 		w.WriteHeader(204)
 	})
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Delete(context.Background(), "/items/1")
 	if err != nil {
@@ -138,7 +143,7 @@ func TestRetryOn500(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, `{"ok":true}`)
 	}, WithMaxRetries(3), WithRetryDelay(time.Millisecond), WithMaxRetryDelay(5*time.Millisecond))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Get(context.Background(), "/flaky")
 	if err != nil {
@@ -159,7 +164,7 @@ func TestNoRetryOn4xx(t *testing.T) {
 		w.WriteHeader(404)
 		fmt.Fprint(w, `{"error":"not found"}`)
 	}, WithMaxRetries(3), WithRetryDelay(time.Millisecond))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Get(context.Background(), "/missing")
 	if err == nil {
@@ -180,7 +185,7 @@ func TestContextCancellationStopsRetries(t *testing.T) {
 		w.WriteHeader(500)
 		fmt.Fprint(w, `{"error":"fail"}`)
 	}, WithMaxRetries(10), WithRetryDelay(50*time.Millisecond))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -199,7 +204,7 @@ func TestExhaustedRetriesReturnsResponse(t *testing.T) {
 		w.WriteHeader(500)
 		fmt.Fprint(w, `{"error":"boom"}`)
 	}, WithMaxRetries(2), WithRetryDelay(time.Millisecond), WithMaxRetryDelay(time.Millisecond))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Get(context.Background(), "/down")
 	if err == nil {
@@ -234,7 +239,7 @@ func TestErrorOnStatusDisabled_ClientError(t *testing.T) {
 		w.WriteHeader(404)
 		fmt.Fprint(w, `{"error":"not found"}`)
 	}, WithErrorOnStatus(false))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Get(context.Background(), "/missing")
 	if err != nil {
@@ -261,7 +266,7 @@ func TestErrorOnStatusDisabled_ServerErrorAfterRetries(t *testing.T) {
 		fmt.Fprint(w, `{"error":"unavailable"}`)
 	}, WithErrorOnStatus(false), WithMaxRetries(2),
 		WithRetryDelay(time.Millisecond), WithMaxRetryDelay(time.Millisecond))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Get(context.Background(), "/down")
 	if err != nil {
@@ -291,7 +296,7 @@ func TestRequestBuilder_ErrorOnStatusOverrideDisables(t *testing.T) {
 		w.WriteHeader(404)
 		fmt.Fprint(w, `{"error":"nope"}`)
 	})
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Request().Path("/missing").ErrorOnStatus(false).Get(context.Background())
 	if err != nil {
@@ -308,7 +313,7 @@ func TestRequestBuilder_ErrorOnStatusOverrideEnables(t *testing.T) {
 		w.WriteHeader(404)
 		fmt.Fprint(w, `{"error":"nope"}`)
 	}, WithErrorOnStatus(false))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	resp, err := c.Request().Path("/missing").ErrorOnStatus(true).Get(context.Background())
 	if err == nil {
@@ -328,7 +333,7 @@ func TestRequestBuilder_NoOverrideUsesClientDefault(t *testing.T) {
 	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 	}, WithErrorOnStatus(false))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	_, err := c.Request().Path("/missing").Get(context.Background())
 	if err != nil {
@@ -345,7 +350,7 @@ func TestCircuitBreakerOpensAfterThreshold(t *testing.T) {
 		w.WriteHeader(500)
 		fmt.Fprint(w, `{"error":"fail"}`)
 	}, WithMaxRetries(0), WithCircuitBreaker(3, time.Second))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	// Trip the breaker: 3 failures.
 	for i := 0; i < 3; i++ {
@@ -380,7 +385,7 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, `{"ok":true}`)
 	}, WithMaxRetries(0), WithCircuitBreaker(2, 50*time.Millisecond))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	// Trip breaker: closed -> open.
 	for i := 0; i < 2; i++ {
@@ -391,7 +396,13 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 	}
 
 	// Wait for timeout -> half-open.
-	time.Sleep(60 * time.Millisecond)
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if c.cb.State() == StateHalfOpen {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	shouldFail.Store(false)
 
 	// This call should be allowed (half-open) and succeed.

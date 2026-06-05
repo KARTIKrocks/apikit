@@ -42,7 +42,10 @@ func Record(handler http.Handler, req *http.Request) *Response {
 	result := rec.Result()
 	defer func() { _ = result.Body.Close() }()
 
-	body, _ := io.ReadAll(result.Body)
+	body, err := io.ReadAll(result.Body)
+	if err != nil {
+		panic("apitest: failed to read response body: " + err.Error())
+	}
 
 	return &Response{
 		StatusCode: result.StatusCode,

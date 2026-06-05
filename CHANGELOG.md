@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-06-05
+
+### Fixed
+
+- **httpclient** — `RequestBuilder.Header`/`Param`/`BearerToken` no longer panic when used before `Headers`/`Params`; the maps are now lazily initialized. `Send` also guards against a nil builder/client
+- **httpclient** — query parameters are merged into any query string already present on the path (via `url.Parse`) instead of being naively appended after a second `?`
+- **apitest** — `RequestBuilder.Build` merges query params into the target URL preserving an existing query, and surfaces response-body read errors instead of silently ignoring them
+- **dbx** — `QueryAll`/`QueryOne` now report `rows.Close()` errors (previously discarded) by returning them when the query itself otherwise succeeded
+- **server** — `Start` guards the `doneCh` close with `sync.Once` so `Done()` always unblocks, including on early-return error paths
+- **sqlbuilder** — `CaseBuilder.Else` with a literal now clears any previously bound `ELSE` args, preventing stale arguments from leaking into the built query
+- **config** — `Load` skips nil `Option` values instead of panicking
+
+### Changed
+
+- **router** — `URL` now percent-escapes non-catch-all path parameters (`url.PathEscape`); catch-all (`...`) segments are still written verbatim
+- **router** — `ValidateParams` panics at setup time if a constraint has a nil `Validate` func, surfacing the misconfiguration immediately rather than on first request
+- **httpclient** / **server** — `WithLogger(nil)` now falls back to `slog.Default()` instead of installing a nil logger
+- **httpclient** — `NewCircuitBreaker` clamps a non-positive threshold or timeout to safe defaults (`1` / `1s`); `WithMaxRetries` clamps negative values to `0`
+
 ## [0.20.0] - 2026-06-05
 
 ### Fixed

@@ -63,7 +63,9 @@ func WithRequired() Option {
 func Load(dst any, opts ...Option) error {
 	o := &options{}
 	for _, opt := range opts {
-		opt(o)
+		if opt != nil {
+			opt(o)
+		}
 	}
 
 	// Load JSON file (base layer).
