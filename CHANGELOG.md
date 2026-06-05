@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-06-05
+
+### Added
+
+- **response** — `Envelope.MarshalJSON` always includes the `"data"` field on success responses (rendered as `null` when no data is set), while still omitting it on error responses, so clients can rely on the field being present on success
+
+### Changed
+
+- **response** — `JSON(w, statusCode, data)` derives the `success` flag from the status code (2xx is treated as success) instead of hardcoding `true`, keeping the envelope consistent when a non-2xx status is passed and matching `Builder.Status`
+
 ## [0.16.0] - 2026-04-06
 
 ### Added
