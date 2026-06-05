@@ -423,6 +423,29 @@ r = router.New(
     router.WithMethodNotAllowed(custom405Handler),
 )
 
+// --- Error handling & logging ---
+// Handlers return error; the router's error handler writes the JSON envelope.
+// DefaultErrorHandler logs server errors via slog.Default() so the wrapped
+// cause of an Internal/Internalf error is never silently dropped — only the
+// safe message reaches the client.
+r.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) error {
+    if err := db.Save(u); err != nil {
+        // Client sees "could not save user"; the cause (err) is logged, not sent.
+        return errors.Internalf(err, "could not save user")
+    }
+    return nil
+})
+// Logging policy: status >= 500 logs at Error; a 4xx that wraps a cause logs at
+// Warn; plain 4xx are not logged.
+
+// Inject your own logger instead of slog.Default():
+r = router.New(router.WithErrorHandler(router.NewErrorHandler(myLogger)))
+
+// Or take full control of the response with a custom handler:
+r = router.New(router.WithErrorHandler(func(w http.ResponseWriter, req *http.Request, err error) {
+    // write whatever you want
+}))
+
 // --- Route introspection ---
 for _, ri := range r.Routes() {
     fmt.Printf("%s %s → %s\n", ri.Method, ri.Pattern, ri.HandlerName)
@@ -531,6 +554,34 @@ resp, err := client.Request().
 client := httpclient.New("https://api.example.com",
     httpclient.WithCircuitBreaker(5, 30 * time.Second),
 )
+
+// --- Error handling on non-2xx ---
+// By default a 4xx/5xx status returns an *HTTPError alongside the response.
+// The response is always returned too (even after retries are exhausted), so
+// you can inspect the status and read the error body without unwrapping.
+resp, err := client.Get(ctx, "/users/999")
+if err != nil {
+    var httpErr *httpclient.HTTPError
+    if errors.As(err, &httpErr) {
+        fmt.Println(httpErr.StatusCode, string(httpErr.Body))
+    }
+    // resp is still non-nil: resp.IsClientError(), resp.JSON(&apiErr), etc.
+}
+
+// Opt out of error-on-status for services that return structured error bodies.
+// Non-2xx then returns (resp, nil); branch on the response yourself. Retries on
+// 5xx still happen; transport/context/circuit-breaker failures still error.
+client := httpclient.New("https://api.example.com",
+    httpclient.WithErrorOnStatus(false),
+)
+resp, err := client.Get(ctx, "/users/999") // err == nil on 404
+if err == nil && resp.IsClientError() {
+    var apiErr APIError
+    resp.JSON(&apiErr)
+}
+
+// Override the policy for a single request via the builder.
+resp, err = client.Request().Path("/pay").ErrorOnStatus(true).Post(ctx)
 
 // --- Mocking in tests ---
 // HTTPClient interface allows easy substitution

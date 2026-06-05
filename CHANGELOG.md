@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-06-05
+
+### Added
+
+- **router** — `NewErrorHandler(logger *slog.Logger)` constructor returning an `ErrorHandler` that logs to the supplied logger (falls back to `slog.Default()` when nil); inject via `WithErrorHandler(NewErrorHandler(myLogger))`
+
+### Changed
+
+- **router** — `DefaultErrorHandler` now logs server errors via `slog.Default()` so the wrapped cause of an `Internal`/`Internalf` error is no longer silently dropped: status >= 500 logs at Error level, a 4xx carrying a wrapped cause logs at Warn, and plain 4xx are not logged. Only the safe message is still sent to the client
+
 ## [0.18.0] - 2026-06-05
 
 ### Added
