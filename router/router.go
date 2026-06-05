@@ -119,8 +119,10 @@ func WithRedirectSlash() Option {
 }
 
 // ServeHTTP implements http.Handler.
-// It intercepts 404 and 405 responses from the underlying ServeMux
-// and routes them through the router's ErrorHandler for consistent error format.
+// It intercepts 404 and 405 responses from the underlying ServeMux and routes
+// them through the root group's middleware and the router's ErrorHandler, so
+// unmatched requests get a consistent error format and cross-cutting middleware
+// (notably CORS, including its preflight OPTIONS) still runs. See serveFallback.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Handle trailing slashes before routing.
 	path := req.URL.Path
@@ -157,26 +159,52 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// ServeMux returned 404 or 405 — use dedicated handler if set, otherwise ErrorHandler.
-	switch pw.code {
-	case http.StatusNotFound:
-		if r.notFoundHandler != nil {
-			r.notFoundHandler.ServeHTTP(w, req)
-		} else {
-			r.errorHandler(w, req, errors.NotFound(""))
-		}
-	case http.StatusMethodNotAllowed:
-		if r.methodNotAllowedHandler != nil {
-			r.methodNotAllowedHandler.ServeHTTP(w, req)
-		} else {
-			r.errorHandler(w, req, &errors.Error{
-				StatusCode: http.StatusMethodNotAllowed,
-				Code:       errors.CodeMethodNotAllowed,
-				Message:    "Method not allowed",
-			})
-		}
-	}
+	// ServeMux returned 404 or 405. Run the fallback through the root group's
+	// middleware so cross-cutting concerns apply to unmatched requests.
+	code := pw.code
 	probeWriterPool.Put(pw)
+	r.serveFallback(w, req, code)
+}
+
+// serveFallback writes the 404/405 response — honoring any custom NotFound /
+// MethodNotAllowed handlers — and runs it through the root group's middleware
+// chain (the middleware registered via Router.Use).
+//
+// Running root middleware here is what lets cross-cutting middleware act on
+// requests that match no route or method. The motivating case is CORS: a
+// browser preflight is an OPTIONS request, but handlers register concrete
+// methods (GET, POST, …), so ServeMux answers the preflight with 405 before any
+// handler runs. Without this, CORS middleware added via Use would never see the
+// preflight and the browser would block the real request. It also ensures CORS
+// (and other) headers are present on cross-origin 404/405 responses so the JS
+// caller can read them.
+func (r *Router) serveFallback(w http.ResponseWriter, req *http.Request, code int) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch code {
+		case http.StatusNotFound:
+			if r.notFoundHandler != nil {
+				r.notFoundHandler.ServeHTTP(w, req)
+			} else {
+				r.errorHandler(w, req, errors.NotFound(""))
+			}
+		case http.StatusMethodNotAllowed:
+			if r.methodNotAllowedHandler != nil {
+				r.methodNotAllowedHandler.ServeHTTP(w, req)
+			} else {
+				r.errorHandler(w, req, &errors.Error{
+					StatusCode: http.StatusMethodNotAllowed,
+					Code:       errors.CodeMethodNotAllowed,
+					Message:    "Method not allowed",
+				})
+			}
+		}
+	})
+
+	if mws := r.group.middlewares; len(mws) > 0 {
+		middleware.Chain(mws...)(h).ServeHTTP(w, req)
+		return
+	}
+	h.ServeHTTP(w, req)
 }
 
 // probeWriter intercepts WriteHeader calls to detect 404/405 from ServeMux.
