@@ -5,17 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.18.0] - 2026-06-05
-
-### Added
-
-- **httpclient** — `WithErrorOnStatus(enabled bool)` option to opt out of treating a non-2xx status as an error; when disabled, non-2xx responses return `(resp, nil)` so callers branch on `resp.IsClientError()`/`IsServerError()` and decode the body via `resp.JSON()`. Retries on 5xx still occur; transport, context, and circuit-breaker failures still return errors
-- **httpclient** — `RequestBuilder.ErrorOnStatus(enabled bool)` to override the client's error-on-status policy for a single request
-
-### Fixed
-
-- **httpclient** — `doRequest` now returns the last `*Response` alongside the error when retries are exhausted (previously returned `nil`), so the status code and error body are inspectable without `errors.As` and `Response`'s status helpers are reachable on every error path
-
 ## [0.17.0] - 2026-06-05
 
 ### Added
