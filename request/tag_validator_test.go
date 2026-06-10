@@ -240,11 +240,24 @@ func TestE164(t *testing.T) {
 	type S struct {
 		Phone string `json:"phone" validate:"e164"`
 	}
-	assertValidationError(t, ValidateStruct(S{Phone: "not-a-phone"}), "phone", "E.164")
-	assertValidationError(t, ValidateStruct(S{Phone: "14155552671"}), "phone", "E.164") // missing '+'
-	assertValidationError(t, ValidateStruct(S{Phone: "+0155552671"}), "phone", "E.164") // leading zero
-	assertNoError(t, ValidateStruct(S{Phone: "+14155552671"}))
-	assertNoError(t, ValidateStruct(S{})) // empty is OK (not required)
+	tests := []struct {
+		phone     string
+		shouldErr bool
+	}{
+		{"not-a-phone", true},
+		{"14155552671", true},     // missing '+'
+		{"+0155552671", true},     // leading zero
+		{"+14155552671", false},   // valid
+		{"", false},               // empty is OK (not required)
+	}
+	for _, tt := range tests {
+		err := ValidateStruct(S{Phone: tt.phone})
+		if tt.shouldErr {
+			assertValidationError(t, err, "phone", "E.164")
+		} else {
+			assertNoError(t, err)
+		}
+	}
 }
 
 func TestUnknownRulePanics(t *testing.T) {
