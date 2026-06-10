@@ -55,10 +55,12 @@ var e164Regex = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 //
 // Field names in error output use the `json` tag name if present.
 //
-// Nested structs are validated recursively, as are struct elements of slices,
-// arrays, and maps (reported as e.g. items[0].name) — no separate "dive" tag is
-// needed. Cross-field rules (eqfield, required_with, …) are intentionally out of
-// scope for the tag engine; use request.NewValidation() for cross-field logic.
+// Nested struct fields without a validate tag are recursed automatically; struct
+// fields with a validate tag have only that tag checked. Struct elements of
+// slices, arrays, and maps are always recursed (reported as e.g. items[0].name).
+// No separate "dive" tag is needed. Cross-field rules (eqfield, required_with, …)
+// are intentionally out of scope for the tag engine; use request.NewValidation()
+// for cross-field logic.
 //
 // An unrecognized rule is a programmer error: it panics rather than silently
 // passing, so typos like `e_164` surface immediately instead of letting
