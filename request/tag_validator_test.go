@@ -245,10 +245,10 @@ func TestE164(t *testing.T) {
 		shouldErr bool
 	}{
 		{"not-a-phone", true},
-		{"14155552671", true},     // missing '+'
-		{"+0155552671", true},     // leading zero
-		{"+14155552671", false},   // valid
-		{"", false},               // empty is OK (not required)
+		{"14155552671", true},   // missing '+'
+		{"+0155552671", true},   // leading zero
+		{"+14155552671", false}, // valid
+		{"", false},             // empty is OK (not required)
 	}
 	for _, tt := range tests {
 		err := ValidateStruct(S{Phone: tt.phone})
