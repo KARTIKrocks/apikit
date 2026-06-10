@@ -18,9 +18,11 @@
 package router
 
 import (
+	"bufio"
 	"encoding/json"
 	stderrors "errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -242,8 +244,19 @@ func (pw *probeWriter) Write(b []byte) (int, error) {
 }
 
 // Unwrap returns the underlying ResponseWriter so that http.ResponseController
-// can reach interfaces like http.Flusher and http.Hijacker through the wrapper.
+// can reach interfaces like http.Flusher through the wrapper.
 func (pw *probeWriter) Unwrap() http.ResponseWriter { return pw.ResponseWriter }
+
+// Hijack implements http.Hijacker by delegating to the underlying writer, so
+// WebSocket upgrades and other connection-takeover handlers work behind the
+// router. gorilla/websocket and similar assert http.Hijacker directly — they do
+// not consult Unwrap / http.ResponseController — so the method must live here.
+func (pw *probeWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := pw.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, stderrors.New("apikit/router: underlying ResponseWriter does not implement http.Hijacker")
+}
 
 // markMatched wraps a handler to set the matched flag on the probeWriter.
 // This lets probeWriter distinguish ServeMux's default 404/405 from

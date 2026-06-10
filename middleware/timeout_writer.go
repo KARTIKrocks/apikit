@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"sync"
 )
@@ -34,8 +37,8 @@ func (tw *timeoutWriter) Write(b []byte) (int, error) {
 	return tw.ResponseWriter.Write(b)
 }
 
-// Unwrap returns the underlying ResponseWriter.
-// This is needed for http.Flusher, http.Hijacker, etc.
+// Unwrap returns the underlying ResponseWriter, so http.ResponseController and
+// interface probes can reach it through the wrapper.
 func (tw *timeoutWriter) Unwrap() http.ResponseWriter {
 	return tw.ResponseWriter
 }
@@ -50,4 +53,21 @@ func (tw *timeoutWriter) Flush() {
 	if f, ok := tw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack implements http.Hijacker by delegating to the underlying writer.
+// Note: the Timeout middleware is unsuitable for long-lived hijacked
+// connections (e.g. WebSockets) — its timer keeps running and will try to write
+// a 503 to the taken-over connection. Mount such routes without Timeout. Once a
+// timeout has fired the connection can no longer be hijacked.
+func (tw *timeoutWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.timedOut {
+		return nil, nil, http.ErrHandlerTimeout
+	}
+	if hj, ok := tw.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("apikit/middleware: underlying ResponseWriter does not implement http.Hijacker")
 }
