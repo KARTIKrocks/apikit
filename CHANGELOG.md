@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-06-10
+
+### Added
+
+- **errors** — package-level `Is`, `As`, `Unwrap`, and `Join` that re-export the standard library's `errors` functions. Callers that import this package as `errors` (shadowing the stdlib) can now use them directly, e.g. `errors.Is(err, errors.ErrNotFound)`, as shown in the package docs and README. Because `*Error` implements `Is` (matching on `Code`) and `Unwrap`, sentinel checks and wrapped-cause traversal both work as expected
+
 ## [0.22.0] - 2026-06-10
 
 ### Added
