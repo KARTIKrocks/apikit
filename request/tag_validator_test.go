@@ -168,6 +168,102 @@ func TestUUID(t *testing.T) {
 	assertNoError(t, ValidateStruct(S{}))
 }
 
+func TestGteLte(t *testing.T) {
+	type S struct {
+		Age  int    `json:"age" validate:"gte=18,lte=100"`
+		Name string `json:"name" validate:"gte=2"` // length for strings
+	}
+	assertValidationError(t, ValidateStruct(S{Age: 17, Name: "ok"}), "age", "at least 18")
+	assertValidationError(t, ValidateStruct(S{Age: 200, Name: "ok"}), "age", "at most 100")
+	assertValidationError(t, ValidateStruct(S{Age: 30, Name: "a"}), "name", "at least 2")
+	assertNoError(t, ValidateStruct(S{Age: 18, Name: "ab"}))
+	assertNoError(t, ValidateStruct(S{Age: 100, Name: "ab"}))
+}
+
+func TestGtLt(t *testing.T) {
+	type S struct {
+		Score int      `json:"score" validate:"gt=0,lt=10"`
+		Tags  []string `json:"tags" validate:"gt=1"` // item count for slices
+	}
+	assertValidationError(t, ValidateStruct(S{Score: 0, Tags: []string{"a", "b"}}), "score", "greater than 0")
+	assertValidationError(t, ValidateStruct(S{Score: 10, Tags: []string{"a", "b"}}), "score", "less than 10")
+	assertValidationError(t, ValidateStruct(S{Score: 5, Tags: []string{"a"}}), "tags", "more than 1 items")
+	assertNoError(t, ValidateStruct(S{Score: 5, Tags: []string{"a", "b"}}))
+}
+
+func TestEqNe(t *testing.T) {
+	type S struct {
+		Status string `json:"status" validate:"eq=active"`
+		Count  int    `json:"count" validate:"ne=0"`
+	}
+	assertValidationError(t, ValidateStruct(S{Status: "inactive", Count: 1}), "status", "must equal")
+	assertValidationError(t, ValidateStruct(S{Status: "active", Count: 0}), "count", "must not equal")
+	assertNoError(t, ValidateStruct(S{Status: "active", Count: 3}))
+}
+
+func TestSliceOfStructRecursion(t *testing.T) {
+	type Item struct {
+		Name  string  `json:"name" validate:"required"`
+		Price float64 `json:"price" validate:"gt=0"`
+	}
+	type Order struct {
+		Items []Item `json:"items" validate:"min=1"`
+	}
+
+	// Empty slice fails the field's own rule.
+	assertValidationError(t, ValidateStruct(Order{}), "items", "at least 1")
+
+	// Element tags are validated with indexed names.
+	err := ValidateStruct(Order{Items: []Item{{Name: "ok", Price: 5}, {Name: "", Price: -1}}})
+	assertValidationError(t, err, "items[1].name", "required")
+	assertValidationError(t, err, "items[1].price", "greater than 0")
+	assertNoError(t, ValidateStruct(Order{Items: []Item{{Name: "ok", Price: 5}}}))
+}
+
+func TestMapAndPointerSliceRecursion(t *testing.T) {
+	type Item struct {
+		Name string `json:"name" validate:"required"`
+	}
+	type Bag struct {
+		ByKey map[string]Item `json:"by_key"`
+		Ptrs  []*Item         `json:"ptrs"`
+	}
+	err := ValidateStruct(Bag{
+		ByKey: map[string]Item{"a": {Name: ""}},
+		Ptrs:  []*Item{nil, {Name: ""}},
+	})
+	assertValidationError(t, err, "by_key[a].name", "required")
+	assertValidationError(t, err, "ptrs[1].name", "required") // nil element skipped
+}
+
+func TestE164(t *testing.T) {
+	type S struct {
+		Phone string `json:"phone" validate:"e164"`
+	}
+	assertValidationError(t, ValidateStruct(S{Phone: "not-a-phone"}), "phone", "E.164")
+	assertValidationError(t, ValidateStruct(S{Phone: "14155552671"}), "phone", "E.164") // missing '+'
+	assertValidationError(t, ValidateStruct(S{Phone: "+0155552671"}), "phone", "E.164") // leading zero
+	assertNoError(t, ValidateStruct(S{Phone: "+14155552671"}))
+	assertNoError(t, ValidateStruct(S{})) // empty is OK (not required)
+}
+
+func TestUnknownRulePanics(t *testing.T) {
+	type S struct {
+		Phone string `json:"phone" validate:"required,e_164"`
+	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for unknown validate rule, got none")
+		}
+		msg, ok := r.(string)
+		if !ok || !containsStr(msg, "e_164") {
+			t.Fatalf("expected panic naming the unknown rule, got: %v", r)
+		}
+	}()
+	_ = ValidateStruct(S{Phone: "+14155552671"})
+}
+
 func TestContains(t *testing.T) {
 	type S struct {
 		Bio string `json:"bio" validate:"contains=go"`

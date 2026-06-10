@@ -21,6 +21,10 @@ var regexpCache sync.Map // string → *regexp.Regexp
 // uuidRegex matches standard UUID format (8-4-4-4-12 hex digits).
 var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// e164Regex matches E.164 phone numbers: a leading '+', a nonzero first digit,
+// and up to 15 digits total.
+var e164Regex = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
+
 // ValidateStruct validates a struct's fields using `validate` struct tags.
 // It returns an *errors.Error (422) with field-level messages if validation fails,
 // or nil if all rules pass.
@@ -32,17 +36,33 @@ var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 //	url              — valid URL (net/url)
 //	min=N            — minimum length (string/slice/map) or value (int/float)
 //	max=N            — maximum length (string/slice/map) or value (int/float)
+//	gte=N            — >= N (alias of min: length for string/slice/map, value for numbers)
+//	lte=N            — <= N (alias of max)
+//	gt=N             — strictly greater than N (length for string/slice/map, value for numbers)
+//	lt=N             — strictly less than N
+//	eq=X             — equals X (string/number value, or item count for slice/map)
+//	ne=X             — does not equal X
 //	len=N            — exact length (string/slice/map)
 //	oneof=a b c      — value must be one of the listed values (space-separated)
 //	alpha            — string contains only letters
 //	alphanum         — string contains only letters and digits
 //	numeric          — string contains only digits
 //	uuid             — valid UUID format
+//	e164             — valid E.164 phone number (e.g. +14155552671)
 //	contains=X       — string contains substring X
 //	startswith=X     — string starts with prefix X
 //	endswith=X       — string ends with suffix X
 //
 // Field names in error output use the `json` tag name if present.
+//
+// Nested structs are validated recursively, as are struct elements of slices,
+// arrays, and maps (reported as e.g. items[0].name) — no separate "dive" tag is
+// needed. Cross-field rules (eqfield, required_with, …) are intentionally out of
+// scope for the tag engine; use request.NewValidation() for cross-field logic.
+//
+// An unrecognized rule is a programmer error: it panics rather than silently
+// passing, so typos like `e_164` surface immediately instead of letting
+// invalid input through unvalidated.
 func ValidateStruct(v any) error {
 	val := reflect.ValueOf(v)
 	if val.Kind() == reflect.Pointer {
@@ -94,13 +114,55 @@ func validateStructFields(val reflect.Value, fields map[string]string, prefix st
 			continue
 		}
 
-		if tag == "" || tag == "-" {
+		// An explicit "-" skips the field (and its elements) entirely.
+		if tag == "-" {
 			continue
 		}
 
-		if msg := validateField(fieldVal, tag); msg != "" {
-			fields[name] = msg
+		// Apply this field's own rules (e.g. required/min/max on the field itself).
+		if tag != "" {
+			if msg := validateField(fieldVal, tag); msg != "" {
+				fields[name] = msg
+			}
 		}
+
+		// Recurse into struct elements of slices, arrays, and maps so their own
+		// tags are validated (reported as e.g. items[0].name), without requiring
+		// a separate "dive" tag.
+		diveElements(fieldVal, fields, name)
+	}
+}
+
+// diveElements validates the elements of slices, arrays, and maps whose
+// elements are structs (or pointers to structs). Other kinds are ignored.
+func diveElements(val reflect.Value, fields map[string]string, name string) {
+	switch val.Kind() {
+	case reflect.Slice, reflect.Array:
+		for i := range val.Len() {
+			diveValue(val.Index(i), fields, fmt.Sprintf("%s[%d]", name, i))
+		}
+	case reflect.Map:
+		iter := val.MapRange()
+		for iter.Next() {
+			diveValue(iter.Value(), fields, fmt.Sprintf("%s[%v]", name, iter.Key().Interface()))
+		}
+	}
+}
+
+// diveValue recurses into a single element when it is a struct or a non-nil
+// pointer to a struct, skipping time.Time.
+func diveValue(elem reflect.Value, fields map[string]string, name string) {
+	if elem.Kind() == reflect.Interface {
+		elem = elem.Elem()
+	}
+	if elem.Kind() == reflect.Pointer {
+		if elem.IsNil() {
+			return
+		}
+		elem = elem.Elem()
+	}
+	if elem.Kind() == reflect.Struct && elem.Type().Name() != "Time" {
+		validateStructFields(elem, fields, name)
 	}
 }
 
@@ -140,42 +202,50 @@ func validateField(val reflect.Value, tag string) string {
 	return ""
 }
 
+// ruleFunc validates a value against a single rule, with param being the text
+// after '=' (empty for param-less rules). It returns an error message or "".
+type ruleFunc func(val reflect.Value, param string) string
+
+// paramless adapts a rule that ignores its parameter to a ruleFunc.
+func paramless(fn func(reflect.Value) string) ruleFunc {
+	return func(val reflect.Value, _ string) string { return fn(val) }
+}
+
+// ruleFuncs is the dispatch table of supported rules. Adding a rule here is the
+// only change needed to support a new tag; unknown tags are rejected by panic.
+var ruleFuncs = map[string]ruleFunc{
+	"required":   paramless(ruleRequired),
+	"email":      paramless(ruleEmail),
+	"url":        paramless(ruleURL),
+	"min":        ruleMin,
+	"max":        ruleMax,
+	"gte":        ruleMin, // gte is min: >= N (length for string/slice/map)
+	"lte":        ruleMax, // lte is max: <= N
+	"gt":         ruleGt,
+	"lt":         ruleLt,
+	"eq":         ruleEq,
+	"ne":         ruleNe,
+	"len":        ruleLen,
+	"oneof":      ruleOneOf,
+	"alpha":      paramless(ruleAlpha),
+	"alphanum":   paramless(ruleAlphanum),
+	"numeric":    paramless(ruleNumeric),
+	"uuid":       paramless(ruleUUID),
+	"e164":       paramless(ruleE164),
+	"contains":   ruleContains,
+	"startswith": ruleStartsWith,
+	"endswith":   ruleEndsWith,
+}
+
 // applyRule applies a single validation rule and returns an error message or "".
+// An unrecognized rule is a programmer error and panics (see ValidateStruct).
 func applyRule(val reflect.Value, rule string) string {
 	key, param, _ := strings.Cut(rule, "=")
-
-	switch key {
-	case "required":
-		return ruleRequired(val)
-	case "email":
-		return ruleEmail(val)
-	case "url":
-		return ruleURL(val)
-	case "min":
-		return ruleMin(val, param)
-	case "max":
-		return ruleMax(val, param)
-	case "len":
-		return ruleLen(val, param)
-	case "oneof":
-		return ruleOneOf(val, param)
-	case "alpha":
-		return ruleAlpha(val)
-	case "alphanum":
-		return ruleAlphanum(val)
-	case "numeric":
-		return ruleNumeric(val)
-	case "uuid":
-		return ruleUUID(val)
-	case "contains":
-		return ruleContains(val, param)
-	case "startswith":
-		return ruleStartsWith(val, param)
-	case "endswith":
-		return ruleEndsWith(val, param)
-	default:
-		return ""
+	fn, ok := ruleFuncs[key]
+	if !ok {
+		panic(fmt.Sprintf("apikit: unknown validate rule %q", key))
 	}
+	return fn(val, param)
 }
 
 func ruleRequired(val reflect.Value) string {
@@ -285,6 +355,117 @@ func ruleLen(val reflect.Value, param string) string {
 	return ""
 }
 
+// numericOrLen returns a comparable magnitude for a value: the numeric value
+// for numbers, or the element/character count for strings, slices, arrays, and
+// maps. ok is false for kinds with no meaningful magnitude (bool, struct, …).
+func numericOrLen(val reflect.Value) (float64, bool) {
+	switch val.Kind() {
+	case reflect.String:
+		return float64(len(val.String())), true
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return float64(val.Len()), true
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return float64(val.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return float64(val.Uint()), true
+	case reflect.Float32, reflect.Float64:
+		return val.Float(), true
+	}
+	return 0, false
+}
+
+// lenAwareMsg picks a message variant based on whether the value is measured by
+// length (string/collection) or by numeric value.
+func lenAwareMsg(kind reflect.Kind, numMsg, strMsg, itemsMsg string) string {
+	switch kind {
+	case reflect.String:
+		return strMsg
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return itemsMsg
+	default:
+		return numMsg
+	}
+}
+
+func ruleGt(val reflect.Value, param string) string {
+	n, err := strconv.ParseFloat(param, 64)
+	if err != nil {
+		return ""
+	}
+	mag, ok := numericOrLen(val)
+	if !ok || mag > n {
+		return ""
+	}
+	return lenAwareMsg(val.Kind(),
+		fmt.Sprintf("must be greater than %s", param),
+		fmt.Sprintf("must be more than %s characters", param),
+		fmt.Sprintf("must have more than %s items", param))
+}
+
+func ruleLt(val reflect.Value, param string) string {
+	n, err := strconv.ParseFloat(param, 64)
+	if err != nil {
+		return ""
+	}
+	mag, ok := numericOrLen(val)
+	if !ok || mag < n {
+		return ""
+	}
+	return lenAwareMsg(val.Kind(),
+		fmt.Sprintf("must be less than %s", param),
+		fmt.Sprintf("must be fewer than %s characters", param),
+		fmt.Sprintf("must have fewer than %s items", param))
+}
+
+// valueEquals reports whether val equals param. For strings it compares the
+// string; for numbers and bools the value; for slices/arrays/maps the item
+// count. ok is false when param cannot be parsed for the value's kind (treated
+// as a no-op, mirroring min/max).
+func valueEquals(val reflect.Value, param string) (equal bool, ok bool) {
+	switch val.Kind() {
+	case reflect.String:
+		return val.String() == param, true
+	case reflect.Bool:
+		b, err := strconv.ParseBool(param)
+		return err == nil && val.Bool() == b, err == nil
+	case reflect.Slice, reflect.Map, reflect.Array:
+		n, err := strconv.Atoi(param)
+		return err == nil && val.Len() == n, err == nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(param, 10, 64)
+		return err == nil && val.Int() == n, err == nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		n, err := strconv.ParseUint(param, 10, 64)
+		return err == nil && val.Uint() == n, err == nil
+	case reflect.Float32, reflect.Float64:
+		f, err := strconv.ParseFloat(param, 64)
+		return err == nil && val.Float() == f, err == nil
+	}
+	return false, false
+}
+
+func ruleEq(val reflect.Value, param string) string {
+	equal, ok := valueEquals(val, param)
+	if !ok || equal {
+		return ""
+	}
+	return lenAwareMsg(val.Kind(),
+		fmt.Sprintf("must equal %s", param),
+		fmt.Sprintf("must equal %q", param),
+		fmt.Sprintf("must have exactly %s items", param))
+}
+
+func ruleNe(val reflect.Value, param string) string {
+	equal, ok := valueEquals(val, param)
+	if !ok || !equal {
+		return ""
+	}
+	return lenAwareMsg(val.Kind(),
+		fmt.Sprintf("must not equal %s", param),
+		fmt.Sprintf("must not equal %q", param),
+		fmt.Sprintf("must not have %s items", param))
+}
+
 func ruleOneOf(val reflect.Value, param string) string {
 	s := fmt.Sprintf("%v", val.Interface())
 	allowed := strings.Fields(param)
@@ -340,6 +521,17 @@ func ruleUUID(val reflect.Value) string {
 	}
 	if !IsValidUUID(s) {
 		return "must be a valid UUID"
+	}
+	return ""
+}
+
+func ruleE164(val reflect.Value) string {
+	s := stringVal(val)
+	if s == "" {
+		return ""
+	}
+	if !IsValidE164(s) {
+		return "must be a valid E.164 phone number"
 	}
 	return ""
 }
@@ -407,6 +599,12 @@ func IsValidURL(s string) bool {
 // IsValidUUID checks whether s matches the standard UUID format.
 func IsValidUUID(s string) bool {
 	return uuidRegex.MatchString(s)
+}
+
+// IsValidE164 checks whether s is a valid E.164 phone number
+// (a leading '+' followed by up to 15 digits, first digit nonzero).
+func IsValidE164(s string) bool {
+	return e164Regex.MatchString(s)
 }
 
 // MatchesRegexp checks whether s matches the given regexp pattern.

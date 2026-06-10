@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-06-10
+
+### Added
+
+- **request** — `e164` validation tag for E.164 phone numbers (e.g. `+14155552671`); exported `IsValidE164` helper
+- **request** — comparison tags `gte`, `lte`, `gt`, `lt`, `eq`, `ne`. `gte`/`lte` mirror `min`/`max` (value for numbers, length for string/slice/map); `gt`/`lt` are their strict variants; `eq`/`ne` compare string content, numeric value, or item count
+- **request** — struct elements of slices, arrays, and maps are now validated recursively (reported as e.g. `items[0].name`, `by_key[a].name`), with no separate `dive` tag required; `nil` pointer elements are skipped and `validate:"-"` skips a field and its elements
+
+### Changed
+
+- **request** — an unrecognized `validate` tag now panics instead of silently passing the value. Validate tags are static, developer-authored config, so an unknown rule (e.g. a typo like `e_164`) is a programmer error that previously let invalid input through unvalidated; it now surfaces immediately. Cross-field rules (`eqfield`, `required_with`, …) remain out of scope for the tag engine — use `request.NewValidation()`
+
 ## [0.21.0] - 2026-06-05
 
 ### Fixed
