@@ -61,5 +61,6 @@ func TestLoggerPreservesHijacker(t *testing.T) {
 }
 
 func TestTimeoutPreservesHijacker(t *testing.T) {
+	t.Parallel()
 	assertHijackable(t, Timeout(time.Second), "Timeout")
 }
