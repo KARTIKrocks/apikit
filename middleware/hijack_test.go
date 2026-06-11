@@ -56,6 +56,7 @@ func assertHijackable(t *testing.T, mw Middleware, name string) {
 }
 
 func TestLoggerPreservesHijacker(t *testing.T) {
+	t.Parallel()
 	assertHijackable(t, Logger(slog.New(slog.NewTextHandler(io.Discard, nil))), "Logger")
 }
 
