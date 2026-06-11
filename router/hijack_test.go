@@ -61,6 +61,7 @@ func TestProbeWriterHijack(t *testing.T) {
 // TestProbeWriterHijackUnsupported confirms a clear error (not a panic) when the
 // underlying writer cannot be hijacked.
 func TestProbeWriterHijackUnsupported(t *testing.T) {
+	t.Parallel()
 	r := New()
 	var hijackErr error
 	r.GetFunc("/ws", func(w http.ResponseWriter, req *http.Request) {
