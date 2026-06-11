@@ -28,6 +28,7 @@ func (f *fakeHijacker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 // http.Hijacker rather than consulting Unwrap, so the method must be present on
 // the wrapper itself.
 func TestProbeWriterHijack(t *testing.T) {
+	t.Parallel()
 	r := New()
 	var sawHijacker bool
 	r.GetFunc("/ws", func(w http.ResponseWriter, req *http.Request) {
