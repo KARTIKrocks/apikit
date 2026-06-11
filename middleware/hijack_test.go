@@ -35,8 +35,11 @@ func assertHijackable(t *testing.T, mw Middleware, name string) {
 		hj, ok := w.(http.Hijacker)
 		sawHijacker = ok
 		if ok {
-			if _, _, err := hj.Hijack(); err != nil {
+			conn, _, err := hj.Hijack()
+			if err != nil {
 				t.Errorf("%s: hijack failed: %v", name, err)
+			} else {
+				conn.Close()
 			}
 		}
 	}))
