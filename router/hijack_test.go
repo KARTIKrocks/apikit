@@ -35,8 +35,14 @@ func TestProbeWriterHijack(t *testing.T) {
 		hj, ok := w.(http.Hijacker)
 		sawHijacker = ok
 		if ok {
-			if _, _, err := hj.Hijack(); err != nil {
+		hj, ok := w.(http.Hijacker)
+		sawHijacker = ok
+		if ok {
+			conn, _, err := hj.Hijack()
+			if err != nil {
 				t.Errorf("hijack failed: %v", err)
+			} else {
+				conn.Close()
 			}
 		}
 	})
