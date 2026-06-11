@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"sync"
 )
@@ -34,8 +37,8 @@ func (tw *timeoutWriter) Write(b []byte) (int, error) {
 	return tw.ResponseWriter.Write(b)
 }
 
-// Unwrap returns the underlying ResponseWriter.
-// This is needed for http.Flusher, http.Hijacker, etc.
+// Unwrap returns the underlying ResponseWriter, so http.ResponseController and
+// interface probes can reach it through the wrapper.
 func (tw *timeoutWriter) Unwrap() http.ResponseWriter {
 	return tw.ResponseWriter
 }
@@ -50,4 +53,28 @@ func (tw *timeoutWriter) Flush() {
 	if f, ok := tw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack implements http.Hijacker by delegating to the underlying writer.
+// On a successful hijack the writer is marked as committed so the Timeout
+// goroutine's deadline path won't try to write a 503 to the taken-over
+// connection. Once a timeout has fired the connection can no longer be
+// hijacked.
+func (tw *timeoutWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.timedOut {
+		return nil, nil, http.ErrHandlerTimeout
+	}
+	hj, ok := tw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("apikit/middleware: underlying ResponseWriter does not implement http.Hijacker")
+	}
+	conn, buf, err := hj.Hijack()
+	if err == nil {
+		// The connection is now owned by the caller; suppress the timeout
+		// response so it can't write to the hijacked connection.
+		tw.written = true
+	}
+	return conn, buf, err
 }

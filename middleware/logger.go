@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"bufio"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -128,8 +131,8 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// Unwrap returns the underlying ResponseWriter.
-// This is needed for http.Flusher, http.Hijacker, etc.
+// Unwrap returns the underlying ResponseWriter, so http.ResponseController and
+// interface probes can reach it through the wrapper.
 func (rw *responseWriter) Unwrap() http.ResponseWriter {
 	return rw.ResponseWriter
 }
@@ -139,4 +142,14 @@ func (rw *responseWriter) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack implements http.Hijacker by delegating to the underlying writer, so
+// WebSocket upgrades work through the Logger middleware. Libraries such as
+// gorilla/websocket assert http.Hijacker directly rather than via Unwrap.
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("apikit/middleware: underlying ResponseWriter does not implement http.Hijacker")
 }

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-06-11
+
+### Fixed
+
+- **router / middleware** — `http.Hijacker` is now implemented directly on the response-writer wrappers (`router.probeWriter`, and the `Logger`/`Timeout` middleware writers), so **WebSocket upgrades work behind the router and middleware**. Previously these wrappers exposed the underlying connection only through `Unwrap()`; that satisfies `http.ResponseController` but not libraries like `gorilla/websocket`, which assert `w.(http.Hijacker)` directly — so upgrades failed with `500 "response does not implement http.Hijacker"`. `Hijack()` now delegates down the wrapper chain to the real writer.
+
+### Notes
+
+- The `Timeout` middleware is unsuitable for long-lived hijacked connections (WebSockets): its timer keeps running and will try to write a 503 to the taken-over connection. Mount WebSocket/streaming routes without `Timeout`. After a timeout has fired, `Hijack()` returns `http.ErrHandlerTimeout`.
+
 ## [0.23.0] - 2026-06-10
 
 ### Added

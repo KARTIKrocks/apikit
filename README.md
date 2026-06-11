@@ -466,6 +466,15 @@ srv.Start()
 
 Middleware is resolved at registration time. `Use()` only applies to routes registered after the call, matching chi/echo/gin behavior.
 
+**WebSockets:** the router's response wrapper implements `http.Hijacker`, so connection-takeover handlers (e.g. `gorilla/websocket`) work behind it — mount the upgrade with `GetFunc`. The `Logger` middleware is hijack-safe too. Do **not** apply the `Timeout` middleware to WebSocket/streaming routes: its timer keeps running against the hijacked connection. Mount such routes on a router (or group) without `Timeout`.
+
+```go
+r.GetFunc("/ws", func(w http.ResponseWriter, req *http.Request) {
+    conn, err := upgrader.Upgrade(w, req, nil) // gorilla asserts http.Hijacker
+    // ...
+})
+```
+
 ### middleware
 
 Production-ready middleware that works with any `net/http` router.
