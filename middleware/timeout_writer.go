@@ -56,18 +56,25 @@ func (tw *timeoutWriter) Flush() {
 }
 
 // Hijack implements http.Hijacker by delegating to the underlying writer.
-// Note: the Timeout middleware is unsuitable for long-lived hijacked
-// connections (e.g. WebSockets) — its timer keeps running and will try to write
-// a 503 to the taken-over connection. Mount such routes without Timeout. Once a
-// timeout has fired the connection can no longer be hijacked.
+// On a successful hijack the writer is marked as committed so the Timeout
+// goroutine's deadline path won't try to write a 503 to the taken-over
+// connection. Once a timeout has fired the connection can no longer be
+// hijacked.
 func (tw *timeoutWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 	if tw.timedOut {
 		return nil, nil, http.ErrHandlerTimeout
 	}
-	if hj, ok := tw.ResponseWriter.(http.Hijacker); ok {
-		return hj.Hijack()
+	hj, ok := tw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("apikit/middleware: underlying ResponseWriter does not implement http.Hijacker")
 	}
-	return nil, nil, errors.New("apikit/middleware: underlying ResponseWriter does not implement http.Hijacker")
+	conn, buf, err := hj.Hijack()
+	if err == nil {
+		// The connection is now owned by the caller; suppress the timeout
+		// response so it can't write to the hijacked connection.
+		tw.written = true
+	}
+	return conn, buf, err
 }
