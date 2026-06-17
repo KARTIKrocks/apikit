@@ -227,7 +227,9 @@ func validateField(val reflect.Value, tag string) string {
 			}
 		case !val.IsValid():
 			// Nil pointer/interface with no omitempty: the value rules have
-			// nothing to operate on.
+			// nothing to operate on, but still reject an unknown tag so a typo
+			// panics regardless of whether the field happens to be nil.
+			ruleFor(rule)
 		default:
 			if msg := applyRule(val, rule); msg != "" {
 				return msg
@@ -302,12 +304,21 @@ var ruleFuncs = map[string]ruleFunc{
 // applyRule applies a single validation rule and returns an error message or "".
 // An unrecognized rule is a programmer error and panics (see ValidateStruct).
 func applyRule(val reflect.Value, rule string) string {
+	fn, param := ruleFor(rule)
+	return fn(val, param)
+}
+
+// ruleFor resolves a tag to its rule function and parameter text, panicking on
+// an unrecognized rule (a programmer typo) so unknown tags never pass silently.
+// Shared by applyRule and validateField's nil-field branch so the panic fires
+// regardless of whether the field has a value to validate.
+func ruleFor(rule string) (ruleFunc, string) {
 	key, param, _ := strings.Cut(rule, "=")
 	fn, ok := ruleFuncs[key]
 	if !ok {
 		panic(fmt.Sprintf("apikit: unknown validate rule %q", key))
 	}
-	return fn(val, param)
+	return fn, param
 }
 
 // msgRequired is the error message for a failed "required" check. validateField
