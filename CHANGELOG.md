@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-06-17
+
+### Added
+
+- **request** — `omitempty` modifier for the `validate` tag: when a field is absent or holds its zero value, the remaining rules for that field are skipped, so optional fields can carry rules such as `omitempty,oneof=...` or `omitempty,url` without rejecting the empty/unset case. It is order-sensitive and must appear before the rules it guards (rules apply left-to-right, so a trailing `omitempty` cannot undo an earlier rule's failure)
+
+### Fixed
+
+- **request** — value rules (`min`, `max`, `oneof`, `url`, `e164`, `len`, `contains`, …) now apply to pointer and interface fields by dereferencing the value before the rule runs. Previously they were a silent no-op on a `*T` field (e.g. `*string` with `max=3`), so invalid data behind a pointer passed unchecked. Pointer fields that were effectively unvalidated may now surface validation errors
+
+### Notes
+
+- `required` semantics are unchanged, and are now documented and tested. On a pointer or interface it is a presence (nil) check: a non-nil pointer to a zero value (e.g. `*string` holding `""`) still satisfies `required`, matching go-playground/validator and preserving PATCH semantics (`nil` = absent, `&""` = explicitly provided). On a plain value, `required` still means non-zero
+
 ## [0.24.0] - 2026-06-11
 
 ### Fixed

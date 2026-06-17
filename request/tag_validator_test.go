@@ -260,6 +260,88 @@ func TestE164(t *testing.T) {
 	}
 }
 
+func TestOmitempty(t *testing.T) {
+	type S struct {
+		// Optional value fields: empty skips the rule, present is validated.
+		Type string `json:"type" validate:"omitempty,oneof=text image file"`
+		Name string `json:"name" validate:"omitempty,max=3"`
+		// Optional pointer fields: nil skips, non-nil is dereferenced and checked.
+		Status *string `json:"status" validate:"omitempty,oneof=online offline"`
+		URL    *string `json:"url" validate:"omitempty,url"`
+	}
+
+	bad := "garbage"
+	long := "toolong"
+	notURL := "not a url"
+	online := "online"
+
+	tests := []struct {
+		name     string
+		in       S
+		errField string // "" means expect no error
+	}{
+		{"all empty/nil passes", S{}, ""},
+		{"valid value passes", S{Type: "image"}, ""},
+		{"invalid value fails", S{Type: bad}, "type"},
+		{"empty string skips max", S{Name: ""}, ""},
+		{"present string checked by max", S{Name: long}, "name"},
+		{"nil pointer skips oneof", S{Status: nil}, ""},
+		{"valid pointer passes oneof", S{Status: &online}, ""},
+		{"invalid pointer fails oneof", S{Status: &bad}, "status"},
+		{"invalid pointer fails url", S{URL: &notURL}, "url"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateStruct(tt.in)
+			if tt.errField == "" {
+				assertNoError(t, err)
+			} else {
+				assertValidationError(t, err, tt.errField, "")
+			}
+		})
+	}
+}
+
+func TestRequiredPointerSemantics(t *testing.T) {
+	// "required" on a pointer/interface is a presence (nil) check, NOT a
+	// dereference-and-check-zero. A non-nil pointer to "" is "explicitly
+	// provided" and passes; only nil fails. This matches go-playground/validator
+	// and preserves PATCH semantics (nil = absent, &"" = provided-but-empty).
+	type Ptr struct {
+		Name *string `json:"name" validate:"required"`
+	}
+	empty, real := "", "x"
+	assertNoError(t, ValidateStruct(Ptr{Name: &empty}))                 // &"" is provided
+	assertNoError(t, ValidateStruct(Ptr{Name: &real}))                  // &"x" is provided
+	assertValidationError(t, ValidateStruct(Ptr{}), "name", "required") // nil fails
+
+	// A plain value field is unchanged: zero value still means missing.
+	type Val struct {
+		Name string `json:"name" validate:"required"`
+	}
+	assertValidationError(t, ValidateStruct(Val{}), "name", "required")
+	assertNoError(t, ValidateStruct(Val{Name: "x"}))
+
+	// Value rules still dereference the pointer: oneof is checked on the
+	// underlying value, so an out-of-set non-nil pointer fails.
+	type Combo struct {
+		Status *string `json:"status" validate:"required,oneof=on off"`
+	}
+	on, bad := "on", "garbage"
+	assertNoError(t, ValidateStruct(Combo{Status: &on}))
+	assertValidationError(t, ValidateStruct(Combo{Status: &bad}), "status", "one of")
+
+	// Interface fields follow the same rules as pointers: nil is absent, a
+	// non-nil interface is "present" and dereferenced for the value rules.
+	type Iface struct {
+		Status any `json:"status" validate:"required,oneof=on off"`
+	}
+	assertValidationError(t, ValidateStruct(Iface{}), "status", "required")          // nil interface fails required
+	assertNoError(t, ValidateStruct(Iface{Status: "on"}))                            // present + in set
+	assertValidationError(t, ValidateStruct(Iface{Status: bad}), "status", "one of") // present but out of set
+}
+
 func TestUnknownRulePanics(t *testing.T) {
 	type S struct {
 		Phone string `json:"phone" validate:"required,e_164"`
@@ -275,6 +357,20 @@ func TestUnknownRulePanics(t *testing.T) {
 		}
 	}()
 	_ = ValidateStruct(S{Phone: "+14155552671"})
+}
+
+func TestUnknownRuleOnNilPointerPanics(t *testing.T) {
+	// An unknown tag must panic even when the field is a nil pointer, so a typo
+	// is caught regardless of whether the value happens to be absent.
+	type S struct {
+		Phone *string `json:"phone" validate:"e_164"`
+	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for unknown validate rule on nil pointer, got none")
+		}
+	}()
+	_ = ValidateStruct(S{})
 }
 
 func TestContains(t *testing.T) {

@@ -231,9 +231,12 @@ type CreateUserReq struct {
     Role  string `json:"role" validate:"oneof=admin user mod"`
 }
 // Bind[T] automatically validates tags before returning.
-// Supported: required, email, url, min, max, gte, lte, gt, lt, eq, ne, len,
-//            oneof, alpha, alphanum, numeric, uuid, e164, contains,
+// Supported: required, omitempty, email, url, min, max, gte, lte, gt, lt, eq,
+//            ne, len, oneof, alpha, alphanum, numeric, uuid, e164, contains,
 //            startswith, endswith
+// `omitempty` (place it first) skips the remaining rules when the field is
+// absent or its zero value; pointer/interface fields are dereferenced for the
+// value rules, while `required` on a pointer/interface is a presence (nil) check.
 // Nested structs and struct elements of slices/maps are validated recursively.
 // Cross-field rules (eqfield, required_with, …) are out of scope — use
 // request.NewValidation(). Unknown tags panic rather than passing silently.
