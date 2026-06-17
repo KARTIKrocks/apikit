@@ -331,6 +331,15 @@ func TestRequiredPointerSemantics(t *testing.T) {
 	on, bad := "on", "garbage"
 	assertNoError(t, ValidateStruct(Combo{Status: &on}))
 	assertValidationError(t, ValidateStruct(Combo{Status: &bad}), "status", "one of")
+
+	// Interface fields follow the same rules as pointers: nil is absent, a
+	// non-nil interface is "present" and dereferenced for the value rules.
+	type Iface struct {
+		Status any `json:"status" validate:"required,oneof=on off"`
+	}
+	assertValidationError(t, ValidateStruct(Iface{}), "status", "required")          // nil interface fails required
+	assertNoError(t, ValidateStruct(Iface{Status: "on"}))                            // present + in set
+	assertValidationError(t, ValidateStruct(Iface{Status: bad}), "status", "one of") // present but out of set
 }
 
 func TestUnknownRulePanics(t *testing.T) {
@@ -348,6 +357,20 @@ func TestUnknownRulePanics(t *testing.T) {
 		}
 	}()
 	_ = ValidateStruct(S{Phone: "+14155552671"})
+}
+
+func TestUnknownRuleOnNilPointerPanics(t *testing.T) {
+	// An unknown tag must panic even when the field is a nil pointer, so a typo
+	// is caught regardless of whether the value happens to be absent.
+	type S struct {
+		Phone *string `json:"phone" validate:"e_164"`
+	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for unknown validate rule on nil pointer, got none")
+		}
+	}()
+	_ = ValidateStruct(S{})
 }
 
 func TestContains(t *testing.T) {
