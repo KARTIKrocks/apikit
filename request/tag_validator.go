@@ -31,7 +31,10 @@ var e164Regex = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 //
 // Supported tags (comma-separated in `validate:"..."`):
 //
-//	required         — value must not be zero
+//	required         — value must be present: non-nil for a pointer/interface
+//	                   (a non-nil pointer to "" passes), non-zero for a plain value
+//	omitempty        — modifier (must come first): skip the remaining rules when
+//	                   the value is absent or its zero value
 //	email            — valid email address (net/mail)
 //	url              — valid URL (net/url)
 //	min=N            — minimum length (string/slice/map) or value (int/float)
@@ -190,18 +193,75 @@ func jsonFieldName(field reflect.StructField) string {
 
 // validateField runs all comma-separated rules against a value, returning the
 // first error message or empty string.
+//
+// Pointers and interfaces are dereferenced before the value rules (max, oneof,
+// url, …) run, so those operate on the underlying value rather than on the
+// pointer. "required" is the deliberate exception: on a pointer/interface it is
+// a pure presence (nil) check, so a non-nil pointer to a zero value (e.g. a
+// *string holding "") still satisfies "required". This matches
+// go-playground/validator and preserves PATCH semantics, where nil means
+// "absent" and a non-nil pointer to "" means "explicitly provided, empty". On a
+// plain value, "required" still means non-zero.
+//
+// "omitempty" is a modifier, not a rule: when the (dereferenced) value is absent
+// or its zero value, the remaining rules for the field are skipped. It is
+// order-sensitive — it must appear before the rules it guards (e.g.
+// `omitempty,oneof=...`, not `oneof=...,omitempty`), because rules apply
+// left-to-right and a trailing "omitempty" cannot undo an earlier rule's
+// failure.
 func validateField(val reflect.Value, tag string) string {
-	rules := strings.Split(tag, ",")
-	for _, rule := range rules {
+	val, present, absent := derefField(val)
+
+	for _, rule := range strings.Split(tag, ",") {
 		rule = strings.TrimSpace(rule)
-		if rule == "" {
-			continue
-		}
-		if msg := applyRule(val, rule); msg != "" {
-			return msg
+		switch {
+		case rule == "":
+			// empty rule (e.g. trailing comma): skip
+		case rule == "omitempty":
+			if absent {
+				return ""
+			}
+		case rule == "required":
+			if !present {
+				return msgRequired
+			}
+		case !val.IsValid():
+			// Nil pointer/interface with no omitempty: the value rules have
+			// nothing to operate on.
+		default:
+			if msg := applyRule(val, rule); msg != "" {
+				return msg
+			}
 		}
 	}
 	return ""
+}
+
+// derefField unwraps pointers and interfaces to the underlying value (so the
+// value rules operate on it) and reports presence for "required" and absence for
+// "omitempty". A pointer/interface is present when non-nil — a non-nil pointer to
+// a zero value still counts as provided — while a plain value is present when
+// non-zero. absent is true when the dereferenced value is missing or its zero
+// value. An invalid (zero) reflect.Value marks a nil pointer/interface.
+func derefField(val reflect.Value) (deref reflect.Value, present, absent bool) {
+	// Whether the field is a pointer/interface, captured before dereferencing:
+	// "required" treats those as a presence (nil) check, not a zero-value check.
+	isRef := val.IsValid() && (val.Kind() == reflect.Pointer || val.Kind() == reflect.Interface)
+
+	for val.IsValid() && (val.Kind() == reflect.Pointer || val.Kind() == reflect.Interface) {
+		if val.IsNil() {
+			val = reflect.Value{}
+			break
+		}
+		val = val.Elem()
+	}
+
+	present = val.IsValid()
+	if !isRef {
+		present = present && !val.IsZero()
+	}
+	absent = !val.IsValid() || val.IsZero()
+	return val, present, absent
 }
 
 // ruleFunc validates a value against a single rule, with param being the text
@@ -250,9 +310,15 @@ func applyRule(val reflect.Value, rule string) string {
 	return fn(val, param)
 }
 
+// msgRequired is the error message for a failed "required" check. validateField
+// emits it directly for a nil pointer/interface (it cannot route an invalid
+// reflect.Value through ruleRequired, since reflect.Value.IsZero panics on a
+// zero Value), so the two sites share this const to stay in sync.
+const msgRequired = "is required"
+
 func ruleRequired(val reflect.Value) string {
 	if val.IsZero() {
-		return "is required"
+		return msgRequired
 	}
 	return ""
 }
