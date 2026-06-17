@@ -588,7 +588,7 @@ func TestRateLimit_AllowsUnderLimit(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.RemoteAddr = "1.2.3.4:1234"
 		w := httptest.NewRecorder()
@@ -606,7 +606,7 @@ func TestRateLimit_BlocksOverLimit(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.RemoteAddr = "1.2.3.4:1234"
 		w := httptest.NewRecorder()
@@ -828,7 +828,7 @@ func TestFixedWindow_ConcurrentAccess(t *testing.T) {
 	defer fw.Stop()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

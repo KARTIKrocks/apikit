@@ -24,6 +24,7 @@ import (
 )
 
 func TestNew_Defaults(t *testing.T) {
+	t.Parallel()
 	handler := http.NewServeMux()
 	srv := server.New(handler)
 	if srv == nil {
@@ -32,6 +33,7 @@ func TestNew_Defaults(t *testing.T) {
 }
 
 func TestNew_WithOptions(t *testing.T) {
+	t.Parallel()
 	handler := http.NewServeMux()
 	srv := server.New(handler,
 		server.WithAddr(":0"),
@@ -46,6 +48,7 @@ func TestNew_WithOptions(t *testing.T) {
 }
 
 func TestServer_StartAndShutdown(t *testing.T) {
+	t.Parallel()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	})
@@ -79,6 +82,7 @@ func TestServer_StartAndShutdown(t *testing.T) {
 }
 
 func TestServer_OnStartHook(t *testing.T) {
+	t.Parallel()
 	handler := http.NewServeMux()
 	srv := server.New(handler, server.WithAddr(":0"))
 
@@ -107,6 +111,7 @@ func TestServer_OnStartHook(t *testing.T) {
 }
 
 func TestServer_OnStartHook_Error(t *testing.T) {
+	t.Parallel()
 	handler := http.NewServeMux()
 	srv := server.New(handler, server.WithAddr(":0"))
 
@@ -124,6 +129,7 @@ func TestServer_OnStartHook_Error(t *testing.T) {
 }
 
 func TestServer_OnShutdownHook(t *testing.T) {
+	t.Parallel()
 	handler := http.NewServeMux()
 	srv := server.New(handler, server.WithAddr(":0"))
 
@@ -159,6 +165,7 @@ func TestServer_OnShutdownHook(t *testing.T) {
 }
 
 func TestServer_MultipleHooks(t *testing.T) {
+	t.Parallel()
 	handler := http.NewServeMux()
 	srv := server.New(handler, server.WithAddr(":0"))
 
@@ -233,6 +240,7 @@ func generateTestCert(t *testing.T) (certFile, keyFile string) {
 }
 
 func TestServer_TLS(t *testing.T) {
+	t.Parallel()
 	certFile, keyFile := generateTestCert(t)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
