@@ -236,7 +236,7 @@ type CreateUserReq struct {
 //            startswith, endswith
 // `omitempty` (place it first) skips the remaining rules when the field is
 // absent or its zero value; pointer/interface fields are dereferenced for the
-// value rules, while `required` on a pointer is a presence (nil) check.
+// value rules, while `required` on a pointer/interface is a presence (nil) check.
 // Nested structs and struct elements of slices/maps are validated recursively.
 // Cross-field rules (eqfield, required_with, …) are out of scope — use
 // request.NewValidation(). Unknown tags panic rather than passing silently.
