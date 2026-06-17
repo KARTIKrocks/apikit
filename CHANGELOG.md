@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **request** — value rules (`min`, `max`, `oneof`, `url`, `e164`, `len`, `contains`, …) now apply to pointer and interface fields by dereferencing the value before the rule runs. Previously they were a silent no-op on a `*T` field (e.g. `*string` with `max=3`), so invalid data behind a pointer passed unchecked. Pointer fields that were effectively unvalidated may now surface validation errors
+- **request** — an unknown `validate` tag now panics consistently, including on a nil pointer/interface field. Previously a typo'd rule (e.g. `e_164`) on a nil pointer was silently skipped while the same tag on a non-nil value panicked, so the "unknown tags panic" guarantee depended on whether the field happened to be set
 
 ### Notes
 

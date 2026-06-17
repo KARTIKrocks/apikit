@@ -132,6 +132,7 @@ func TestDelete(t *testing.T) {
 // --- Retries ---
 
 func TestRetryOn500(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		n := calls.Add(1)
@@ -158,6 +159,7 @@ func TestRetryOn500(t *testing.T) {
 }
 
 func TestNoRetryOn4xx(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -179,6 +181,7 @@ func TestNoRetryOn4xx(t *testing.T) {
 }
 
 func TestContextCancellationStopsRetries(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -200,6 +203,7 @@ func TestContextCancellationStopsRetries(t *testing.T) {
 }
 
 func TestExhaustedRetriesReturnsResponse(t *testing.T) {
+	t.Parallel()
 	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		fmt.Fprint(w, `{"error":"boom"}`)
@@ -344,6 +348,7 @@ func TestRequestBuilder_NoOverrideUsesClientDefault(t *testing.T) {
 // --- Circuit Breaker ---
 
 func TestCircuitBreakerOpensAfterThreshold(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	ts, c := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -353,7 +358,7 @@ func TestCircuitBreakerOpensAfterThreshold(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	// Trip the breaker: 3 failures.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		c.Get(context.Background(), "/fail")
 	}
 
@@ -373,6 +378,7 @@ func TestCircuitBreakerOpensAfterThreshold(t *testing.T) {
 }
 
 func TestCircuitBreakerTransitions(t *testing.T) {
+	t.Parallel()
 	var shouldFail atomic.Bool
 	shouldFail.Store(true)
 
@@ -388,7 +394,7 @@ func TestCircuitBreakerTransitions(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	// Trip breaker: closed -> open.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		c.Get(context.Background(), "/x")
 	}
 	if c.cb.State() != StateOpen {
@@ -550,7 +556,7 @@ func TestConcurrentSetHeader(t *testing.T) {
 	)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
