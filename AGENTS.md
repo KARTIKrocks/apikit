@@ -68,7 +68,26 @@ run with the **race detector** — new concurrent code must be race-clean. CI ru
   identifiers as a public contract — avoid breaking changes; document additions.
   Record notable changes in `CHANGELOG.md` (Keep a Changelog style).
 - **Docs:** Keep package `doc.go`, `README.md` examples, and code in sync when
-  behavior changes.
+  behavior changes. When a package's public API changes, also update the
+  documentation website (see below) so it does not drift from the code.
+
+## Documentation website
+
+A separate **`website` branch** holds the public documentation site (deployed to
+GitHub Pages via the `gh-pages` branch). It is **not** merged into `main` — check
+it out with `git checkout website` to work on it.
+
+- Location: `apikit-website/` — a React + TypeScript + Vite app styled with
+  Tailwind CSS v4, with syntax highlighting via Shiki.
+- Structure: a single-page site assembled in `src/App.tsx`. Each Go package has
+  one page component in `src/content/<package>.tsx` (e.g. `errors.tsx`,
+  `router.tsx`), rendered through the shared `ModuleSection` and `CodeBlock`
+  components. Navigation lives in `src/components/Sidebar.tsx`.
+- When you add or change a package's public API, add/update the matching
+  `src/content/<package>.tsx` page and its entry in `Sidebar.tsx`.
+- Commands (run inside `apikit-website/`): `npm run dev` (local server),
+  `npm run build` (`tsc -b && vite build`), `npm run lint` (eslint), and
+  `npm run deploy` (build + publish to the `gh-pages` branch).
 
 ## Git / PR conventions
 
