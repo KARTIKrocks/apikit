@@ -43,10 +43,13 @@ func BindMultipartWithConfig[T any](r *http.Request, cfg Config) (T, error) {
 }
 
 // FormFile returns the first file for the given form field name.
+//
+// It applies no size limit or content-type check of its own; use
+// FormFileWithConfig when either matters.
 func FormFile(r *http.Request, field string) (*multipart.FileHeader, error) {
 	_, fh, err := r.FormFile(field)
 	if err != nil {
-		return nil, errors.BadRequest(fmt.Sprintf("Missing or invalid file field %q", field))
+		return nil, fileError(field, err)
 	}
 	return fh, nil
 }
@@ -76,7 +79,7 @@ func bindFormWithConfig[T any](r *http.Request, cfg Config) (T, error) {
 	r.Body = http.MaxBytesReader(nil, r.Body, maxSize)
 
 	if err := r.ParseForm(); err != nil {
-		if err.Error() == "http: request body too large" {
+		if isTooLarge(err) {
 			return v, errors.New(errors.CodeRequestTooLarge, "Request body too large").
 				WithStatus(http.StatusRequestEntityTooLarge)
 		}
@@ -111,7 +114,7 @@ func bindMultipartWithConfig[T any](r *http.Request, cfg Config) (T, error) {
 	r.Body = http.MaxBytesReader(nil, r.Body, maxSize)
 
 	if err := r.ParseMultipartForm(maxMemory); err != nil {
-		if err.Error() == "http: request body too large" {
+		if isTooLarge(err) {
 			return v, errors.New(errors.CodeRequestTooLarge, "Request body too large").
 				WithStatus(http.StatusRequestEntityTooLarge)
 		}

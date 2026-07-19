@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-07-19
+
+### Added
+
+- **request** — `FormFileWithConfig(r, field, FileConfig{MaxBytes, MaxMemory, AllowedTypes})` for uploads that need a size cap or a content-type allowlist. The size limit is applied with `http.MaxBytesReader` *before* the form is parsed, so an oversized upload is rejected without first being buffered to memory or spooled to disk, and it returns `413` rather than a generic `400`. `AllowedTypes` is matched against the type detected from the file's own leading bytes (`http.DetectContentType`), never the client-supplied part header, and accepts exact types (`image/png`) or wildcard subtypes (`image/*`); a rejected type returns `415`. Unlike `FormFile` it also returns the opened `multipart.File`, rewound to the start, so callers don't reopen it just to read the contents
+
+### Fixed
+
+- **request** — `FormFile` no longer reports every failure as `400`. An oversized body now returns `413 REQUEST_TOO_LARGE` and a non-multipart request `415 UNSUPPORTED_MEDIA_TYPE`, matching what `BindMultipart` already did; a genuinely missing field is still `400`. Handlers that keyed off the status code for these cases will now see the accurate one
+
 ## [0.25.0] - 2026-06-17
 
 ### Added

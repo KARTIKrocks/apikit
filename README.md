@@ -176,6 +176,19 @@ meta, err := request.BindMultipart[UploadForm](r)
 fh, err := request.FormFile(r, "avatar")       // Single file
 allFiles := request.FormFiles(r)               // All uploaded files
 
+// Uploads with a size cap and a content-type allowlist.
+// The limit is enforced before the body is read, so oversized uploads are
+// rejected (413) without being buffered to memory or disk. Allowed types are
+// matched against the file's own bytes, not the client-supplied header (415).
+f, fh, err := request.FormFileWithConfig(r, "avatar", request.FileConfig{
+    MaxBytes:     5 << 20,                             // 5 MB
+    AllowedTypes: []string{"image/png", "image/jpeg"}, // or "image/*"
+})
+if err != nil {
+    return err
+}
+defer f.Close()                                // f is rewound, ready to read
+
 // --- Path parameters (Go 1.22+ stdlib routing) ---
 // Route: "GET /posts/{id}"
 id := request.PathParam(r, "id")
