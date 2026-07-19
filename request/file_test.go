@@ -2,12 +2,14 @@ package request
 
 import (
 	"bytes"
+	"encoding/json"
 	stderrors "errors"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/KARTIKrocks/apikit/errors"
@@ -282,6 +284,30 @@ func TestFormFile_TooLargeIsNot400(t *testing.T) {
 	apiErr := apiError(t, err)
 	if apiErr.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Errorf("status = %d, want %d", apiErr.StatusCode, http.StatusRequestEntityTooLarge)
+	}
+}
+
+// An unclassified failure must keep the underlying cause reachable via
+// errors.Is/As for logs, without exposing it in the client-facing message.
+func TestFileError_PreservesCause(t *testing.T) {
+	cause := stderrors.New("some multipart failure")
+	err := fileError("avatar", cause)
+
+	if !stderrors.Is(err, cause) {
+		t.Errorf("errors.Is could not reach the cause through %v", err)
+	}
+	apiErr := apiError(t, err)
+	if strings.Contains(apiErr.Message, cause.Error()) {
+		t.Errorf("Message %q leaks the internal cause to the client", apiErr.Message)
+	}
+
+	// Error.Err is json:"-", so the cause must not reach the response body.
+	b, marshalErr := json.Marshal(apiErr)
+	if marshalErr != nil {
+		t.Fatalf("marshal: %v", marshalErr)
+	}
+	if bytes.Contains(b, []byte("some multipart failure")) {
+		t.Errorf("serialized error leaks the cause: %s", b)
 	}
 }
 

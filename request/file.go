@@ -107,7 +107,8 @@ func FormFileWithConfig(r *http.Request, field string, cfg FileConfig) (multipar
 		detected, err := sniffContentType(f)
 		if err != nil {
 			_ = f.Close()
-			return nil, nil, errors.BadRequest(fmt.Sprintf("Failed to read file field %q", field))
+			return nil, nil, errors.BadRequest(fmt.Sprintf("Failed to read file field %q", field)).
+				Wrap(err)
 		}
 		if !mediaTypeAllowed(detected, cfg.AllowedTypes) {
 			_ = f.Close()
@@ -181,7 +182,10 @@ func fileError(field string, err error) error {
 			"Content-Type must be multipart/form-data").
 			WithStatus(http.StatusUnsupportedMediaType)
 	}
-	return errors.BadRequest(fmt.Sprintf("Missing or invalid file field %q", field))
+	// Cause unknown — keep the original for logs and errors.Is/As. The
+	// client-facing Message is unchanged; Error.Err is json:"-", so nothing
+	// extra reaches the response body.
+	return errors.BadRequest(fmt.Sprintf("Missing or invalid file field %q", field)).Wrap(err)
 }
 
 // isTooLarge reports whether err came from exceeding a body or memory limit.
