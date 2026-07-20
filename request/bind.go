@@ -14,6 +14,16 @@
 //	    if err != nil { return err }
 //	    // req is CreateUserReq, fully decoded and typed
 //	}
+//
+// # Multipart temporary files
+//
+// Any helper that parses a multipart form — BindMultipart, FormFile,
+// FormFiles, and FormFileWithConfig — may cause parts larger than the
+// in-memory limit to be spooled to temporary files on disk. Under
+// net/http's own server these are removed automatically once the handler
+// returns. Code running outside that server (a custom serving loop, or a
+// request parsed off the wire by hand) must call
+// r.MultipartForm.RemoveAll() itself, or the temporary files will leak.
 package request
 
 import (
