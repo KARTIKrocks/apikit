@@ -16,8 +16,8 @@ The module is a collection of independent, importable packages. Each top-level
 directory is one package:
 
 - `errors/` — Structured API errors with `errors.Is`/`errors.As` support, error codes, sentinels
-- `request/` — Generic body binding (`Bind[T]`), query/path/header parsing, pagination, sorting, filtering, validation
-- `response/` — JSON envelope, fluent builder, pagination helpers, SSE streaming, XML, JSONP
+- `request/` — Generic body binding (`Bind[T]`), query/path/header parsing, pagination, sorting, filtering, validation, file uploads with size and content-type limits
+- `response/` — JSON envelope, fluent builder, pagination helpers, SSE streaming, XML, JSONP, file/media serving with HTTP Range support
 - `middleware/` — Request ID, logging, panic recovery, CORS, rate limiting, auth, security headers, timeout, body limit
 - `httpclient/` — HTTP client with retries, backoff, circuit breaker, and mockable `HTTPClient` interface
 - `router/` — Route grouping, named routes, URL generation, param constraints, sub-router mounting, static files (on top of `http.ServeMux`)
