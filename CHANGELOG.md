@@ -5,10 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.26.0] - 2026-07-19
+## [0.26.0] - 2026-07-20
 
 ### Added
 
+- **response** — `ServeContent(w, r, io.ReadSeeker, ContentConfig{...})` and `ServeFile(w, r, path, ContentConfig{...})` for serving files with HTTP Range support, so a `<video>` or `<audio>` element can seek and downloads can resume. Conditional GETs (`If-None-Match`, `If-Modified-Since`, `If-Range`), `HEAD`, and `416 Range Not Satisfiable` are handled too. `ContentConfig` covers `Filename` (sets Content-Disposition, `attachment` or `Inline`), `ContentType` (detected from the extension or sniffed when empty), `ModTime`, `ETag` (quoted automatically, since an unquoted validator would never match a client's `If-None-Match`), and `CacheControl`. `ServeFile` returns `404` for a missing path or a directory and `500` otherwise, writing nothing to the response, so it composes with `response.Handle`; its `path` is trusted and must not be built from unvalidated user input. `File` and `Reader` are unchanged — both still write the body in a single pass and do not support Range
 - **request** — `FormFileWithConfig(r, field, FileConfig{MaxBytes, MaxMemory, AllowedTypes})` for uploads that need a size cap or a content-type allowlist. The size limit is applied with `http.MaxBytesReader` *before* the form is parsed, so an oversized upload is rejected without first being buffered to memory or spooled to disk, and it returns `413` rather than a generic `400`. `AllowedTypes` is matched against the type detected from the file's own leading bytes (`http.DetectContentType`), never the client-supplied part header, and accepts exact types (`image/png`) or wildcard subtypes (`image/*`); a rejected type returns `415`. Unlike `FormFile` it also returns the opened `multipart.File`, rewound to the start, so callers don't reopen it just to read the contents
 
 ### Fixed

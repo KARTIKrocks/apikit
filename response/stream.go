@@ -8,10 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/KARTIKrocks/apikit/errors"
 )
@@ -86,25 +83,17 @@ func StreamJSON(w http.ResponseWriter, fn func(send func(event string, data any)
 }
 
 // File sends a file as a download.
+//
+// The whole body is written in one shot, so File does not support Range
+// requests. Use ServeContent for media a client needs to seek within, or for
+// resumable downloads.
 func File(w http.ResponseWriter, filename string, data []byte, contentType string) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	name := filepath.Base(filename)
-
-	// Sanitize filename: remove characters unsafe in Content-Disposition.
-	safeName := strings.Map(func(r rune) rune {
-		if r == '"' || r == '\\' || r < 0x20 {
-			return '_'
-		}
-		return r
-	}, name)
-
 	w.Header().Set("Content-Type", contentType)
-	// ASCII-safe filename for broad compatibility, plus RFC 5987 UTF-8 variant.
-	w.Header().Set("Content-Disposition",
-		fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, safeName, url.PathEscape(name)))
+	w.Header().Set("Content-Disposition", contentDisposition(filename, false))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
@@ -211,6 +200,9 @@ func JSONP(w http.ResponseWriter, r *http.Request, statusCode int, data any) {
 
 // Reader streams data from an io.Reader to the response.
 // Useful for proxying responses or sending large files without loading them into memory.
+//
+// The stream is written start to finish, so Reader does not support Range
+// requests. If the source can seek, use ServeContent instead.
 func Reader(w http.ResponseWriter, statusCode int, contentType string, contentLength int64, reader io.Reader) {
 	if contentType == "" {
 		contentType = "application/octet-stream"

@@ -324,6 +324,19 @@ response.StreamJSON(w, func(send func(event string, data any) error) error {
     return nil
 })
 
+// --- Files & media (HTTP Range, conditional GET) ---
+// Serves a <video>/<audio> that needs seeking, and resumable downloads.
+response.ServeFile(w, r, "/srv/media/clip.mp4", response.ContentConfig{
+    Inline:       true,
+    CacheControl: "public, max-age=86400",
+})
+
+// Same, for any io.ReadSeeker (S3 object, in-memory buffer, ...)
+response.ServeContent(w, r, seeker, response.ContentConfig{
+    Filename: "report.pdf",
+    ETag:     version,
+})
+
 // --- Other formats ---
 response.XML(w, 200, xmlData)                              // XML with <?xml?> header
 response.IndentedJSON(w, 200, data)                        // Pretty-printed JSON
