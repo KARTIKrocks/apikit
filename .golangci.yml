@@ -1,5 +1,12 @@
 version: "2"
 
+run:
+  # Pinned above the go.mod directive (1.22): at language version 1.22
+  # staticcheck fails to model t.Fatal as terminating and reports false
+  # SA5011 nil-dereference warnings in tests. Genuine SA5011 hits are
+  # still reported at this version.
+  go: "1.23"
+
 linters:
   enable:
     - errcheck
