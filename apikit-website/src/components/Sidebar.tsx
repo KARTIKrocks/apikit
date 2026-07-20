@@ -42,6 +42,7 @@ const sections: Section[] = [
     label: 'request',
     children: [
       { id: 'request-binding', label: 'Body Binding' },
+      { id: 'request-uploads', label: 'Safe File Uploads' },
       { id: 'request-params', label: 'Path & Query Params' },
       { id: 'request-headers', label: 'Headers' },
       { id: 'request-pagination', label: 'Pagination' },
@@ -60,6 +61,7 @@ const sections: Section[] = [
       { id: 'response-builder', label: 'Builder Pattern' },
       { id: 'response-pagination', label: 'Pagination' },
       { id: 'response-streaming', label: 'Streaming & Formats' },
+      { id: 'response-files', label: 'Files & Media' },
       { id: 'response-handler', label: 'Handler Wrapper' },
     ],
   },

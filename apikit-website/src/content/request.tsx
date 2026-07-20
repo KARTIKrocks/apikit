@@ -15,7 +15,7 @@ export default function RequestDocs() {
         'Query parameter helpers with type conversion and defaults',
         'Pagination (offset + cursor), sorting, and filtering',
         'Programmatic validation with fluent API',
-        'File upload helpers',
+        'File upload helpers with size caps and content-type allowlists',
       ]}
     >
       <h3 id="request-binding" className="text-lg font-semibold text-text-heading mt-8 mb-2">Body Binding</h3>
@@ -27,6 +27,7 @@ export default function RequestDocs() {
           <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">BindMultipart[T](r)</td><td className="py-2 text-text-muted">Bind multipart/form-data body</td></tr>
           <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">FormFile(r, key)</td><td className="py-2 text-text-muted">Get a single uploaded file</td></tr>
           <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">FormFiles(r)</td><td className="py-2 text-text-muted">Get all uploaded files</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">FormFileWithConfig(r, key, cfg)</td><td className="py-2 text-text-muted">Upload with a size cap and content-type allowlist</td></tr>
         </tbody></table>
       </div>
       <CodeBlock code={`type CreatePostReq struct {
@@ -49,6 +50,34 @@ form, err := request.BindForm[ContactForm](r)
 meta, err := request.BindMultipart[UploadForm](r)
 fh, err := request.FormFile(r, "avatar")
 allFiles := request.FormFiles(r)`} />
+
+      <h3 id="request-uploads" className="text-lg font-semibold text-text-heading mt-8 mb-2">Safe File Uploads</h3>
+      <p className="text-text-muted mb-4">
+        <code className="font-mono text-accent">FormFileWithConfig</code> enforces the two checks every
+        upload endpoint needs. The size limit is applied <em>before</em> the body is read, so an oversized
+        upload is rejected with <code className="font-mono text-accent">413</code> without ever being
+        buffered to memory or spooled to disk. The content type is detected from the file&rsquo;s own
+        leading bytes, never the client-supplied part header, which is trivially forged; a rejected type
+        returns <code className="font-mono text-accent">415</code>.
+      </p>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm"><thead><tr className="border-b border-border text-left"><th className="py-2 pr-4 text-text-heading font-semibold">FileConfig field</th><th className="py-2 text-text-heading font-semibold">Description</th></tr></thead><tbody>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">MaxBytes</td><td className="py-2 text-text-muted">Max body size, enforced before parsing (default 10 MB)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">MaxMemory</td><td className="py-2 text-text-muted">Bytes held in memory before spilling to disk (default 32 MB)</td></tr>
+          <tr className="border-b border-border/50"><td className="py-2 pr-4 font-mono text-accent whitespace-nowrap">AllowedTypes</td><td className="py-2 text-text-muted">Allowlist: exact (image/png), wildcard (image/*), or */*; empty allows any</td></tr>
+        </tbody></table>
+      </div>
+      <CodeBlock code={`f, fh, err := request.FormFileWithConfig(r, "avatar", request.FileConfig{
+    MaxBytes:     5 << 20,                             // 5 MB -> 413 if exceeded
+    AllowedTypes: []string{"image/png", "image/jpeg"}, // -> 415 if not matched
+})
+if err != nil {
+    return err // *errors.Error, rendered by response.Err / response.Handle
+}
+defer f.Close()
+
+// Unlike FormFile, the opened file is returned too, rewound to the start.
+data, err := io.ReadAll(f)`} />
 
       <h3 id="request-params" className="text-lg font-semibold text-text-heading mt-8 mb-2">Path & Query Params</h3>
       <div className="overflow-x-auto mb-4">
