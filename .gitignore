@@ -35,3 +35,7 @@ Thumbs.db
 next.md
 
 playground
+
+# Docs site: lives on the `website` branch. Checking that branch out leaves
+# node_modules/ and dist/ behind here, where nothing else would ignore them.
+apikit-website/
