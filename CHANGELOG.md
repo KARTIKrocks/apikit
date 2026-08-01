@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-08-01
+
+### Fixed
+
+- **sqlbuilder** — set operations (`Union`, `UnionAll`, `Intersect`, `Except`) no longer produce invalid SQL when a branch carries its own `ORDER BY`, `LIMIT`, or `OFFSET`. Previously each branch was concatenated with no parentheses and the left (receiver) branch's ordering/limiting leaked onto the enclosing statement, so a query like `older.UnionAll(newer)` where both branches had their own `ORDER BY … LIMIT` emitted a statement with two `ORDER BY`s and two `LIMIT`s — a hard syntax error — while the right branch's clauses silently bound to the whole union instead of that branch. Now any branch that carries `ORDER BY` / `LIMIT` / `OFFSET` is wrapped in parentheses, and the left branch's own clauses are snapshotted to that branch when the set op is added. Ordering or limiting applied *after* the set op (e.g. `a.UnionAll(b).OrderBy("x").Limit(n)`) still applies to the whole statement, as intended. Plain branches with no such clauses are unchanged and remain unparenthesized
+- **sqlbuilder** — set operations now preserve the caller's grouping instead of silently deferring to SQL operator precedence. A branch that is itself a compound (e.g. `a.UnionAll(b.Union(c))`) is wrapped in parentheses so it is not flattened into `(a UNION ALL b) UNION c`, which is a different result set. Mixed-kind flat chaining is parenthesized where precedence would otherwise regroup it: because `INTERSECT` binds tighter than `UNION`/`EXCEPT`, `a.Union(b).Intersect(c)` now renders `(a UNION b) INTERSECT c` — matching the left-to-right fluent order — rather than `a UNION b INTERSECT c`, which SQL reads as `a UNION (b INTERSECT c)`. Same-precedence chains (including all same-kind chains such as `a.Union(b).Union(c)`) are unchanged and remain flat. Note: these parenthesized compound forms target PostgreSQL/MySQL — SQLite does not accept a parenthesized or per-branch-ordered compound select as a set-op term, so nested/scoped/mixed-kind set operations are not expressible on SQLite
+
 ## [0.26.0] - 2026-07-20
 
 ### Added

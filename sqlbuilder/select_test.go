@@ -206,6 +206,141 @@ func TestSelectExcept(t *testing.T) {
 	expectSQL(t, "SELECT id FROM users EXCEPT SELECT id FROM banned_users", sql)
 }
 
+func TestSetOpScopesLeftBranchOrderLimit(t *testing.T) {
+	// ORDER BY / LIMIT set on the left branch before the set op must stay
+	// bound to that branch (parenthesized), and ordering added after the set
+	// op applies to the whole statement.
+	older := Select("id", "created_at").From("messages").
+		Where("created_at <= $1", "a").OrderByDesc("created_at").Limit(26)
+	newer := Select("id", "created_at").From("messages").
+		Where("created_at > $1", "b").OrderByAsc("created_at").Limit(26)
+
+	sql, args := older.UnionAll(newer).OrderByDesc("created_at").Build()
+	expectSQL(t, "(SELECT id, created_at FROM messages WHERE created_at <= $1 ORDER BY created_at DESC LIMIT 26) "+
+		"UNION ALL (SELECT id, created_at FROM messages WHERE created_at > $2 ORDER BY created_at ASC LIMIT 26) "+
+		"ORDER BY created_at DESC", sql)
+	expectArgs(t, []any{"a", "b"}, args)
+}
+
+func TestSetOpScopesLeftBranchOffset(t *testing.T) {
+	left := Select("id").From("a").OrderBy("id").Offset(10)
+	right := Select("id").From("b")
+	sql, _ := left.Union(right).Build()
+	expectSQL(t, "(SELECT id FROM a ORDER BY id OFFSET 10) UNION SELECT id FROM b", sql)
+}
+
+func TestSetOpRightBranchParenthesized(t *testing.T) {
+	// A right branch carrying its own ORDER BY / LIMIT must be parenthesized so
+	// the clauses scope to it rather than the whole union.
+	left := Select("id").From("a")
+	right := Select("id").From("b").OrderByDesc("id").Limit(5)
+	sql, _ := left.UnionAll(right).Build()
+	expectSQL(t, "SELECT id FROM a UNION ALL (SELECT id FROM b ORDER BY id DESC LIMIT 5)", sql)
+}
+
+func TestSetOpPlainBranchesUnparenthesized(t *testing.T) {
+	// Branches with no ORDER BY / LIMIT / OFFSET are left bare, unchanged.
+	left := Select("id").From("a")
+	right := Select("id").From("b")
+	sql, _ := left.Union(right).Build()
+	expectSQL(t, "SELECT id FROM a UNION SELECT id FROM b", sql)
+}
+
+func TestSetOpBranchOrderByExprArgs(t *testing.T) {
+	// A parameterized ORDER BY on a scoped branch keeps its args in the correct
+	// placeholder position relative to WHERE and the other branch.
+	left := Select("id").From("a").Where("x = $1", 1).
+		OrderByExpr(RawExpr("f($1)", 2)).Limit(3)
+	right := Select("id").From("b").Where("y = $1", 4)
+	sql, args := left.UnionAll(right).Build()
+	expectSQL(t, "(SELECT id FROM a WHERE x = $1 ORDER BY f($2) LIMIT 3) UNION ALL SELECT id FROM b WHERE y = $3", sql)
+	expectArgs(t, []any{1, 2, 4}, args)
+}
+
+func TestSetOpNestedBranchParenthesized(t *testing.T) {
+	// A branch that is itself a compound is parenthesized so the caller's
+	// grouping is preserved. Without the parens, left-to-right associativity
+	// would regroup a UNION ALL (b UNION c) into (a UNION ALL b) UNION c,
+	// silently changing the result set.
+	a := Select("id").From("a")
+	b := Select("id").From("b")
+	c := Select("id").From("c")
+	sql, _ := a.UnionAll(b.Union(c)).Build()
+	expectSQL(t, "SELECT id FROM a UNION ALL (SELECT id FROM b UNION SELECT id FROM c)", sql)
+}
+
+func TestSetOpMixedKindChainGrouping(t *testing.T) {
+	// Flat chaining is left-associative in fluent order, but SQL binds INTERSECT
+	// tighter than UNION/EXCEPT. The accumulated left segment is parenthesized so
+	// a.Union(b).Intersect(c) means (a UNION b) INTERSECT c, not a UNION (b INTERSECT c).
+	a := Select("id").From("a")
+	b := Select("id").From("b")
+	c := Select("id").From("c")
+	sql, _ := a.Union(b).Intersect(c).Build()
+	expectSQL(t, "(SELECT id FROM a UNION SELECT id FROM b) INTERSECT SELECT id FROM c", sql)
+}
+
+func TestSetOpSameKindChainStaysFlat(t *testing.T) {
+	// Same-precedence chains (including all same-kind chains) add no parens and
+	// keep their existing flat SQL.
+	a := Select("id").From("a")
+	b := Select("id").From("b")
+	c := Select("id").From("c")
+	sql, _ := a.Union(b).Union(c).Build()
+	expectSQL(t, "SELECT id FROM a UNION SELECT id FROM b UNION SELECT id FROM c", sql)
+}
+
+func TestSetOpIntersectThenUnionNeedsNoParens(t *testing.T) {
+	// INTERSECT already binds tighter, so a.Intersect(b).Union(c) parses as
+	// (a INTERSECT b) UNION c under plain SQL precedence — matching fluent order
+	// with no added parens.
+	a := Select("id").From("a")
+	b := Select("id").From("b")
+	c := Select("id").From("c")
+	sql, _ := a.Intersect(b).Union(c).Build()
+	expectSQL(t, "SELECT id FROM a INTERSECT SELECT id FROM b UNION SELECT id FROM c", sql)
+}
+
+func TestSetOpMixedKindNestedWrap(t *testing.T) {
+	// Two precedence rises produce two nested left wraps.
+	a := Select("id").From("a")
+	b := Select("id").From("b")
+	c := Select("id").From("c")
+	d := Select("id").From("d")
+	sql, _ := a.Union(b).Except(c).Intersect(d).Build()
+	expectSQL(t, "(SELECT id FROM a UNION SELECT id FROM b EXCEPT SELECT id FROM c) INTERSECT SELECT id FROM d", sql)
+}
+
+func TestSetOpNestedBranchWithOrderingParenthesized(t *testing.T) {
+	inner := Select("id").From("b").Union(Select("id").From("c")).OrderByDesc("id").Limit(2)
+	sql, _ := Select("id").From("a").UnionAll(inner).Build()
+	expectSQL(t, "SELECT id FROM a UNION ALL (SELECT id FROM b UNION SELECT id FROM c ORDER BY id DESC LIMIT 2)", sql)
+}
+
+func TestSetOpMultipleSetOpsCaptureLeftOnce(t *testing.T) {
+	// Left scope is captured only on the first set op; a later ORDER BY/LIMIT
+	// applies to the whole statement.
+	a := Select("id").From("a").OrderByDesc("id").Limit(5)
+	b := Select("id").From("b")
+	c := Select("id").From("c")
+	sql, _ := a.UnionAll(b).UnionAll(c).OrderByAsc("id").Limit(10).Build()
+	expectSQL(t, "(SELECT id FROM a ORDER BY id DESC LIMIT 5) UNION ALL SELECT id FROM b "+
+		"UNION ALL SELECT id FROM c ORDER BY id ASC LIMIT 10", sql)
+}
+
+func TestSetOpCloneCopiesLeftScope(t *testing.T) {
+	base := Select("id").From("a").OrderByDesc("id").Limit(5).
+		Union(Select("id").From("b"))
+	clone := base.Clone()
+
+	baseSQL, _ := base.Build()
+	cloneSQL, _ := clone.Build()
+	if baseSQL != cloneSQL {
+		t.Fatalf("clone SQL mismatch:\n base:  %s\n clone: %s", baseSQL, cloneSQL)
+	}
+	expectSQL(t, "(SELECT id FROM a ORDER BY id DESC LIMIT 5) UNION SELECT id FROM b", cloneSQL)
+}
+
 func TestSelectCTE(t *testing.T) {
 	cteQuery := Select("id", "name").From("users").Where("active = $1", true).Query()
 	sql, args := Select("id", "name").
