@@ -33,6 +33,7 @@ type SelectBuilder struct {
 	skipLocked   bool
 	noWait       bool
 	setOps       []setOp
+	setOpLeft    *branchScope
 	ctes         []cte
 }
 
@@ -421,30 +422,62 @@ func (s *SelectBuilder) NoWait() *SelectBuilder {
 
 // Union adds a UNION with another SELECT.
 func (s *SelectBuilder) Union(other *SelectBuilder) *SelectBuilder {
-	sql, args := buildSelectPostgres(other)
-	s.setOps = append(s.setOps, setOp{kind: setOpUnion, query: Query{SQL: sql, Args: args}})
-	return s
+	return s.addSetOp(setOpUnion, other)
 }
 
 // UnionAll adds a UNION ALL with another SELECT.
 func (s *SelectBuilder) UnionAll(other *SelectBuilder) *SelectBuilder {
-	sql, args := buildSelectPostgres(other)
-	s.setOps = append(s.setOps, setOp{kind: setOpUnionAll, query: Query{SQL: sql, Args: args}})
-	return s
+	return s.addSetOp(setOpUnionAll, other)
 }
 
 // Intersect adds an INTERSECT with another SELECT.
 func (s *SelectBuilder) Intersect(other *SelectBuilder) *SelectBuilder {
-	sql, args := buildSelectPostgres(other)
-	s.setOps = append(s.setOps, setOp{kind: setOpIntersect, query: Query{SQL: sql, Args: args}})
-	return s
+	return s.addSetOp(setOpIntersect, other)
 }
 
 // Except adds an EXCEPT with another SELECT.
 func (s *SelectBuilder) Except(other *SelectBuilder) *SelectBuilder {
+	return s.addSetOp(setOpExcept, other)
+}
+
+// addSetOp appends a set operation with other. On the first set op it
+// snapshots the receiver's own ORDER BY / LIMIT / OFFSET as the left branch's
+// scope, so any ordering or limiting added afterward binds to the whole
+// set-op statement rather than being confused with the left branch's.
+func (s *SelectBuilder) addSetOp(kind setOpKind, other *SelectBuilder) *SelectBuilder {
+	s.captureSetOpLeftScope()
 	sql, args := buildSelectPostgres(other)
-	s.setOps = append(s.setOps, setOp{kind: setOpExcept, query: Query{SQL: sql, Args: args}})
+	s.setOps = append(s.setOps, setOp{
+		kind:      kind,
+		query:     Query{SQL: sql, Args: args},
+		parenWrap: setOpBranchNeedsParens(other),
+	})
 	return s
+}
+
+// captureSetOpLeftScope snapshots the receiver's ORDER BY / LIMIT / OFFSET into
+// the left branch scope and clears the live clauses. It runs only for the first
+// set op and only when there is something to scope; later clauses then belong
+// to the enclosing set-op statement.
+func (s *SelectBuilder) captureSetOpLeftScope() {
+	if len(s.setOps) > 0 {
+		return
+	}
+	if len(s.orderBy) == 0 && len(s.orderByExpr) == 0 && !s.hasLimit && !s.hasOffset {
+		return
+	}
+	s.setOpLeft = &branchScope{
+		orderBy:     s.orderBy,
+		orderByExpr: s.orderByExpr,
+		limit:       s.limit,
+		hasLimit:    s.hasLimit,
+		offset:      s.offsetVal,
+		hasOffset:   s.hasOffset,
+	}
+	s.orderBy = nil
+	s.orderByExpr = nil
+	s.limit, s.hasLimit = 0, false
+	s.offsetVal, s.hasOffset = 0, false
 }
 
 // With adds a CTE (Common Table Expression).
@@ -540,6 +573,12 @@ func (s *SelectBuilder) Clone() *SelectBuilder {
 	c.orderBy = slices.Clone(s.orderBy)
 	c.orderByExpr = slices.Clone(s.orderByExpr)
 	c.setOps = slices.Clone(s.setOps)
+	if s.setOpLeft != nil {
+		left := *s.setOpLeft
+		left.orderBy = slices.Clone(s.setOpLeft.orderBy)
+		left.orderByExpr = slices.Clone(s.setOpLeft.orderByExpr)
+		c.setOpLeft = &left
+	}
 	c.ctes = slices.Clone(s.ctes)
 	if s.fromSubquery != nil {
 		sub := s.fromSubquery.Clone()
@@ -591,13 +630,38 @@ func (s *SelectBuilder) Build() (string, []any) {
 	ac := &argCounter{}
 
 	args = append(args, writeCTEs(&sb, s.ctes, ac)...)
+
+	// Set operations are written left-to-right in the order they were chained,
+	// but SQL binds INTERSECT tighter than UNION/EXCEPT. wrapClose marks each
+	// operator whose precedence rises above the accumulated left segment's; at
+	// those points the left segment is parenthesized (opened by the leading
+	// parens below) so the caller's fluent grouping is preserved rather than
+	// silently regrouped by SQL precedence.
+	wrapClose, wrapOpen := s.setOpWrapPoints()
+	for range wrapOpen {
+		sb.WriteByte('(')
+	}
+
+	// When the receiver captured its own ORDER BY / LIMIT / OFFSET as the left
+	// branch of a set op, wrap the branch in parentheses so those clauses bind
+	// to it rather than to the whole UNION/INTERSECT/EXCEPT statement.
+	leftParen := s.setOpLeft != nil
+	if leftParen {
+		sb.WriteByte('(')
+	}
 	args = append(args, s.writeSelectColumns(&sb, ac)...)
 	args = append(args, s.writeFrom(&sb, ac)...)
 	args = append(args, s.writeJoins(&sb, ac)...)
 	args = append(args, writeWhereClause(&sb, s.conditions, ac)...)
 	args = append(args, s.writeGroupBy(&sb, ac)...)
 	args = append(args, s.writeHaving(&sb, ac)...)
-	args = append(args, s.writeSetOps(&sb, ac)...)
+	if s.setOpLeft != nil {
+		args = append(args, s.setOpLeft.write(&sb, ac)...)
+	}
+	if leftParen {
+		sb.WriteByte(')')
+	}
+	args = append(args, s.writeSetOps(&sb, ac, wrapClose)...)
 	args = append(args, s.writeOrderBy(&sb, ac)...)
 	s.writeLimitOffsetLock(&sb)
 
@@ -726,14 +790,49 @@ func (s *SelectBuilder) writeHaving(sb *strings.Builder, ac *argCounter) []any {
 	return args
 }
 
-func (s *SelectBuilder) writeSetOps(sb *strings.Builder, ac *argCounter) []any {
+// setOpWrapPoints returns, for the set-op chain, a per-operator flag marking
+// where the accumulated left segment must be closed with a parenthesis, and the
+// number of leading parentheses the base branch therefore needs. A parenthesis
+// is required at each operator whose precedence rises above the current top of
+// the left segment (only the base branch is atomic), which is exactly the
+// UNION/EXCEPT → INTERSECT transitions. Same-precedence chains (including all
+// same-kind chains) produce no wraps, leaving their SQL unchanged.
+func (s *SelectBuilder) setOpWrapPoints() ([]bool, int) {
+	if len(s.setOps) == 0 {
+		return nil, 0
+	}
+	wrapClose := make([]bool, len(s.setOps))
+	open := 0
+	topPrec := int(^uint(0) >> 1) // max int: the base branch never needs wrapping alone
+	for i, op := range s.setOps {
+		p := setOpPrec(op.kind)
+		if p > topPrec {
+			wrapClose[i] = true
+			open++
+		}
+		topPrec = p
+	}
+	return wrapClose, open
+}
+
+func (s *SelectBuilder) writeSetOps(sb *strings.Builder, ac *argCounter, wrapClose []bool) []any {
 	var args []any
-	for _, op := range s.setOps {
+	for i, op := range s.setOps {
+		if wrapClose[i] {
+			// Close the left segment opened by a leading paren in Build.
+			sb.WriteByte(')')
+		}
 		sb.WriteByte(' ')
 		sb.WriteString(setOpKeyword(op.kind))
 		sb.WriteByte(' ')
+		if op.parenWrap {
+			sb.WriteByte('(')
+		}
 		rebased := rebasePlaceholders(op.query.SQL, ac.offset())
 		sb.WriteString(rebased)
+		if op.parenWrap {
+			sb.WriteByte(')')
+		}
 		args = append(args, op.query.Args...)
 		ac.n += len(op.query.Args)
 	}
@@ -741,14 +840,20 @@ func (s *SelectBuilder) writeSetOps(sb *strings.Builder, ac *argCounter) []any {
 }
 
 func (s *SelectBuilder) writeOrderBy(sb *strings.Builder, ac *argCounter) []any {
-	if len(s.orderBy) == 0 && len(s.orderByExpr) == 0 {
+	return writeOrderByClause(sb, ac, s.orderBy, s.orderByExpr)
+}
+
+// writeOrderByClause renders an ORDER BY from the given plain and expression
+// clauses. Shared by the outer statement and captured set-op branch scopes.
+func writeOrderByClause(sb *strings.Builder, ac *argCounter, orderBy []string, orderByExpr []Expr) []any {
+	if len(orderBy) == 0 && len(orderByExpr) == 0 {
 		return nil
 	}
 	sb.WriteString(" ORDER BY ")
-	writeJoined(sb, s.orderBy, ", ")
+	writeJoined(sb, orderBy, ", ")
 	var args []any
-	for i, e := range s.orderByExpr {
-		if len(s.orderBy) > 0 || i > 0 {
+	for i, e := range orderByExpr {
+		if len(orderBy) > 0 || i > 0 {
 			sb.WriteString(", ")
 		}
 		rebased := rebasePlaceholders(e.SQL, ac.offset())
@@ -759,15 +864,21 @@ func (s *SelectBuilder) writeOrderBy(sb *strings.Builder, ac *argCounter) []any 
 	return args
 }
 
-func (s *SelectBuilder) writeLimitOffsetLock(sb *strings.Builder) {
-	if s.hasLimit {
+// writeLimitOffset renders LIMIT and OFFSET. Shared by the outer statement and
+// captured set-op branch scopes (which never carry a lock clause).
+func writeLimitOffset(sb *strings.Builder, hasLimit bool, limit int, hasOffset bool, offset int64) {
+	if hasLimit {
 		sb.WriteString(" LIMIT ")
-		sb.WriteString(strconv.Itoa(s.limit))
+		sb.WriteString(strconv.Itoa(limit))
 	}
-	if s.hasOffset {
+	if hasOffset {
 		sb.WriteString(" OFFSET ")
-		sb.WriteString(strconv.FormatInt(s.offsetVal, 10))
+		sb.WriteString(strconv.FormatInt(offset, 10))
 	}
+}
+
+func (s *SelectBuilder) writeLimitOffsetLock(sb *strings.Builder) {
+	writeLimitOffset(sb, s.hasLimit, s.limit, s.hasOffset, s.offsetVal)
 	if s.lockMode != "" {
 		sb.WriteByte(' ')
 		sb.WriteString(s.lockMode)
