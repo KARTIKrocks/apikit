@@ -414,6 +414,47 @@ func TestErrorHandlerWithFields(t *testing.T) {
 	}
 }
 
+func TestErrorHandlerWithDetails(t *testing.T) {
+	r := New()
+	r.Get("/throttled", func(w http.ResponseWriter, req *http.Request) error {
+		return errors.New("TOO_MANY_REQUESTS", "Too many requests").
+			WithStatus(http.StatusTooManyRequests).
+			WithDetail("retry_after", 30)
+	})
+
+	rec := doRequest(r, "GET", "/throttled")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", rec.Code)
+	}
+
+	var env errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(env.Error.Details) != 1 {
+		t.Fatalf("expected 1 detail, got %d", len(env.Error.Details))
+	}
+	// JSON numbers decode as float64 through interface{}.
+	if got := env.Error.Details["retry_after"]; got != float64(30) {
+		t.Errorf("expected retry_after 30, got %v", got)
+	}
+}
+
+func TestErrorHandlerOmitsDetailsWhenEmpty(t *testing.T) {
+	r := New()
+	r.Get("/plain", func(w http.ResponseWriter, req *http.Request) error {
+		return errors.New("BAD_REQUEST", "Bad request").WithStatus(http.StatusBadRequest)
+	})
+
+	rec := doRequest(r, "GET", "/plain")
+	if !strings.Contains(rec.Body.String(), `"code":"BAD_REQUEST"`) {
+		t.Fatalf("expected error body, got %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"details"`) {
+		t.Errorf("expected details to be omitted when empty, got %s", rec.Body.String())
+	}
+}
+
 func TestNoErrorReturned(t *testing.T) {
 	r := New()
 	r.Get("/ok", func(w http.ResponseWriter, req *http.Request) error {
