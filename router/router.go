@@ -389,6 +389,7 @@ type errorBody struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
 	Fields  map[string]string `json:"fields,omitempty"`
+	Details map[string]any    `json:"details,omitempty"`
 }
 
 // DefaultErrorHandler writes a JSON error response matching the standard envelope
@@ -424,6 +425,7 @@ func handleError(w http.ResponseWriter, r *http.Request, err error, logger *slog
 	errCode := "INTERNAL_ERROR"
 	message := "An internal error occurred"
 	var fields map[string]string
+	var details map[string]any
 	var stack string
 
 	if stderrors.As(err, &apiErr) {
@@ -431,6 +433,7 @@ func handleError(w http.ResponseWriter, r *http.Request, err error, logger *slog
 		errCode = apiErr.Code
 		message = apiErr.Message
 		fields = apiErr.Fields
+		details = apiErr.Details
 		stack = apiErr.Stack
 	}
 
@@ -457,6 +460,7 @@ func handleError(w http.ResponseWriter, r *http.Request, err error, logger *slog
 			Code:    errCode,
 			Message: message,
 			Fields:  fields,
+			Details: details,
 		},
 		Timestamp: time.Now().Unix(),
 	})
