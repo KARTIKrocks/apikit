@@ -1,0 +1,64 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style"],
+  "triggerOnUpdates": true,
+  "statusCheck": true,
+  "ignorePatterns": "**/mock_*.go\n**/*_mock.go\n**/testdata/**\n**/go.sum\n**/vendor/**\n**/node_modules/**\nCHANGELOG.md\napikit-website/dist/**\napikit-website/node_modules/**\nbenchmark/**",
+  "instructions": "apikit is a Go toolkit for building REST APIs (github.com/KARTIKrocks/apikit): request binding/validation, response envelopes, middleware, an HTTP client, a router, graceful server shutdown, health checks, config loading, a SQL query builder, and a generic row scanner. It has zero mandatory runtime dependencies — every top-level directory is an independently-importable package, and a user importing one package must not transitively pull in another. Prioritize public-API stability, cross-package decoupling, and correctness of the sqlbuilder/dbx/router/middleware packages over style. See AGENTS.md for repo conventions and .greptile/rules.md for pattern rationale and worked examples from real bugs fixed in this codebase.",
+  "rules": [
+    {
+      "id": "sql-identifier-injection",
+      "rule": "request.SortConfig/FilterConfig only validate a field name against AllowedFields when that slice is non-empty (see request/sort.go, request/filter.go) — an empty or unset AllowedFields lets any caller-supplied field name through unchecked. sqlbuilder itself has no identifier-quoting or escaping layer for table/column names (only value placeholders are parameterized). Flag any new code path that lets a request-derived field/column name reach sqlbuilder, dbx, or a raw SQL string without going through an explicit, non-empty allowlist first.",
+      "scope": ["request/**/*.go", "sqlbuilder/**/*.go", "dbx/**/*.go"],
+      "severity": "high"
+    },
+    {
+      "id": "set-op-composition-integrity",
+      "rule": "SelectBuilder's set-operation methods (Union, UnionAll, Intersect, Except in sqlbuilder/select.go, set_op.go) rely on precise branch-scope snapshotting (a branch's own ORDER BY/LIMIT/OFFSET must not leak onto the enclosing statement) and precedence-preserving parenthesization (INTERSECT binds tighter than UNION/EXCEPT, so a flat mixed-kind chain must be parenthesized to preserve the caller's left-to-right intent). A change that 'simplifies' this by flattening branches or dropping parenthesization reintroduces the exact invalid/silently-wrong SQL fixed in the set-op rework — see .greptile/rules.md.",
+      "scope": ["sqlbuilder/select.go", "sqlbuilder/set_op.go"],
+      "severity": "high"
+    },
+    {
+      "id": "error-metadata-full-path",
+      "rule": "A new field added to errors.Error (alongside Code, Message, Fields, Details, Stack) must be threaded through every consumer that renders it to a response: router's errorBody/handleError, and the response package's error envelope. Adding a field to errors.Error without updating both is a silent-data-loss bug, not a style gap — this exact class of bug (Details being dropped by router's handler) was already fixed once.",
+      "scope": ["errors/**/*.go", "router/**/*.go", "response/**/*.go"],
+      "severity": "high"
+    },
+    {
+      "id": "dbx-silent-column-discard",
+      "rule": "dbx's column→field mapping (scan.go: buildColumnMapping/scanInto) silently discards any result column with no matching `db` tag into a throwaway scratch variable rather than erroring. This is intentional for partial-select scanning, but a `db:\"...\"` tag typo produces the same silent behavior — the destination field simply stays at its zero value with no error or panic. Do not add a code path that assumes a tag mismatch would be caught automatically; if strict matching is needed, it must be opt-in and explicit.",
+      "scope": ["dbx/**/*.go"],
+      "severity": "medium"
+    },
+    {
+      "id": "zero-dependency-core",
+      "rule": "Do not add a new third-party runtime dependency to go.mod without it being explicitly requested and justified — zero mandatory dependencies is a stated design goal (AGENTS.md). This applies to every package directory, not just a designated 'core'.",
+      "scope": ["*.go", "**/*.go", "go.mod"],
+      "severity": "high"
+    },
+    {
+      "id": "package-decoupling",
+      "rule": "Each top-level directory (errors/, request/, response/, middleware/, httpclient/, router/, server/, health/, config/, sqlbuilder/, dbx/, apitest/) is meant to be independently importable. Flag a new import that makes one of these packages depend on another where it previously didn't (e.g. errors/ importing sqlbuilder/), since it breaks a user's ability to import only what they need.",
+      "scope": ["**/*.go"],
+      "severity": "medium"
+    },
+    {
+      "id": "context-and-resource-hygiene",
+      "rule": "httpclient and dbx must honor context cancellation on every request/query path and never store a context.Context in a struct. Response bodies (httpclient), *sql.Rows, and file handles must be closed on every return path, including error paths reached after partial acquisition.",
+      "scope": ["httpclient/**/*.go", "dbx/**/*.go"],
+      "severity": "medium"
+    },
+    {
+      "id": "middleware-chain-order-semantics",
+      "rule": "middleware.Chain/Then apply middleware in the given order with the first argument as outermost (documented in middleware/chain.go's doc comment). A change to this composition order, or to a specific middleware's placement guidance (e.g. Recover should wrap innermost of the safety-related middleware, CORS preflight must be handled before auth), is a behavioral break for every caller relying on the documented example — treat it with the same weight as a public API signature change.",
+      "scope": ["middleware/**/*.go"],
+      "severity": "medium"
+    },
+    {
+      "id": "go-exported-docs",
+      "rule": "Every new or newly-exported type, function, method, and constant must have a doc comment that starts with the identifier's own name. Note revive's 'exported' check is explicitly disabled in .golangci.yml, so lint will not catch a missing doc comment here — review is the only enforcement.",
+      "scope": ["**/*.go"],
+      "severity": "low"
+    }
+  ]
+}

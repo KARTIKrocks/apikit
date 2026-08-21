@@ -1,0 +1,26 @@
+{
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "description": "Repository conventions: package layout and decoupling rule, zero-dependency policy, build/test/lint commands, conventions for errors/tests/docs, documentation-site workflow."
+    },
+    {
+      "path": "errors/errors.go",
+      "description": "The *errors.Error type (Code, Message, Fields, Details, Stack) and its constructors that router and response render into HTTP output.",
+      "scope": ["router/**/*.go", "response/**/*.go", "middleware/**/*.go"]
+    },
+    {
+      "path": "sqlbuilder/doc.go",
+      "description": "Package overview for the SQL builder: dialects, placeholder handling, and supported query shapes.",
+      "scope": ["sqlbuilder/**/*.go", "dbx/**/*.go", "request/**/*.go"]
+    },
+    {
+      "path": ".golangci.yml",
+      "description": "The linter ruleset already enforced in CI (note revive's 'exported' check is disabled here); avoid duplicating what golangci-lint already flags."
+    },
+    {
+      "path": "CHANGELOG.md",
+      "description": "Keep-a-Changelog history — check for a 'Fixed' entry describing the exact bug class a change might be reintroducing (e.g. the sqlbuilder set-op rework, the router error-Details fix)."
+    }
+  ]
+}
