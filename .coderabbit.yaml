@@ -57,8 +57,8 @@ reviews:
     - "!**/mock_*.go"
     - "!**/*_mock.go"
     - "!**/testdata/**"
-    - "!CHANGELOG.md"
-    - "!go.sum"
+    - "!**/CHANGELOG.md"
+    - "!**/go.sum"
     - "!**/vendor/**"
 
   # Package-aware guidance so reviews match this library's conventions.
@@ -70,7 +70,10 @@ reviews:
         starting with the identifier name. Flag goroutine leaks, missing
         context.Context propagation, unclosed resources (Body/rows/files),
         and data races on shared state. Prefer the standard library and
-        avoid new third-party dependencies in this library.
+        avoid new third-party dependencies in the core module (github.com/
+        KARTIKrocks/apikit's own go.mod). This does not apply to otel/, a
+        separate Go module with its own go.mod that exists specifically to
+        add a real third-party dependency — see its own instructions below.
     - path: "**/*_test.go"
       instructions: >-
         Prefer table-driven tests and t.Parallel() where safe. Tests must be
@@ -89,6 +92,39 @@ reviews:
       instructions: >-
         Examples are illustrative; relax error-handling strictness but ensure
         they compile and demonstrate correct API usage.
+    - path: "openapi/**"
+      instructions: >-
+        Schema generation reflects on the same json/validate struct tags
+        request.Bind[T]/request.ValidateStruct use — keep the two consistent
+        rather than reinventing tag parsing here. Document caches its
+        rendered JSON (document.go: the cache field), invalidated only by
+        Add/Sync explicitly clearing it; flag any new Document mutator that
+        doesn't also clear the cache, or a served spec goes stale after the
+        first request following that change. Schema.MarshalJSON encodes a
+        nullable $ref as {"anyOf": [{"$ref":...},{"type":"null"}]} rather than
+        a sibling "type" next to "$ref" (which OpenAPI tooling doesn't
+        reliably honor) — a real bug caught in this package's initial review;
+        don't "simplify" that branch away. Importing router/ here (for
+        Document.Sync) is intentional, not a decoupling violation.
+    - path: "otel/**"
+      instructions: >-
+        This is a separate Go module (its own go.mod/go.sum, tagged
+        independently as otel/vX.Y.Z) specifically so real OpenTelemetry
+        dependencies never reach the core module — do not flag
+        go.opentelemetry.io/otel imports or go.mod entries as an unwanted
+        dependency here. Span/metric names must stay low-cardinality: they
+        come from the matched route pattern (r.Pattern), not the raw request
+        path, and r.Pattern for a method-specific route already includes the
+        method (e.g. "GET /users/{id}") — code that does `r.Method + " " +
+        r.Pattern` unconditionally reintroduces a real double-prefix bug this
+        module's own tests caught before its first release. OpenTelemetry's
+        global TracerProvider/MeterProvider/propagator default to no-ops by
+        design; if propagation "isn't working" in a test or example, the fix
+        is a missing WithPropagator(...)/otel.SetTextMapPropagator(...) at
+        the call site, not a change to that default. Note: CI lints this
+        module with its own otel/.golangci.yml (no go-version pin, unlike the
+        root config referenced below), so a golangci-lint finding here from
+        the tools integration may not match what CI actually enforces.
 
   tools:
     # Reuse the repo's existing golangci-lint v2 ruleset; no duplication.

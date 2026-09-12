@@ -1,0 +1,4 @@
+{
+  "disabledRules": ["zero-dependency-core", "package-decoupling"],
+  "instructions": "otel is a separate Go module (its own go.mod, go.sum, README.md, CHANGELOG.md — tagged independently as otel/vX.Y.Z, not part of the core module's release) that exists specifically to add real go.opentelemetry.io/otel dependencies and to bridge several core packages (middleware/, health/, router/) together — the two rules disabled above exist to protect the core module's zero-dependency and mutual-package-decoupling guarantees, neither of which apply to this module's own purpose. A genuinely new third-party dependency here still deserves scrutiny (it affects this module's own consumers and its otel/go.sum), just not a hard block. Everything else still applies at full strength, including go-exported-docs and this repo's otel-specific rules (otel-span-name-cardinality, otel-propagator-noop-default) in the root .greptile/config.json."
+}

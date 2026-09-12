@@ -1,0 +1,4 @@
+{
+  "disabledRules": ["go-exported-docs", "package-decoupling", "zero-dependency-core"],
+  "instructions": "Examples are illustrative, copied by users, and not part of the public API surface — .golangci.yml already relaxes errcheck here. Relax the disabled rules above too, but still ensure examples compile, demonstrate correct API usage against the real packages, and don't ignore an error in a way that misleads a reader copying the code."
+}
