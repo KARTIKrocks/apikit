@@ -1,3 +1,7 @@
+github.com/KARTIKrocks/apikit v0.28.0 h1:KlEEiET3oLMyZrvrNO+jz+FbJmXaX3dldlU4xR2ePOo=
+github.com/KARTIKrocks/apikit v0.28.0/go.mod h1:5jwPndutoxK4VXClfRYrdJK67E65wfAAJdsdU1xvgjI=
+github.com/KARTIKrocks/apikit/otel v0.1.0 h1:8FGtAR9QkpPwnbqQ90DtqQnRi28rVwIN/fM/0jbcgyc=
+github.com/KARTIKrocks/apikit/otel v0.1.0/go.mod h1:btrkHFVuzYIvFdqtcg7PrGHr1sDeIlG6bFhrYyik4TY=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
