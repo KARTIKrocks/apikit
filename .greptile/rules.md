@@ -85,3 +85,64 @@ Nothing in the current design distinguishes "intentionally partial" from
 "broken mapping" — don't assume a future caller will notice; if a new API
 wants strict mode, it needs to be its own explicit option, not inferred from
 existing behavior.
+
+## openapi's rendered-JSON cache has to be invalidated everywhere state changes
+
+`openapi.Document` (`document.go`) reflects over request/response types and
+renders a full OpenAPI document on demand — expensive enough that `Handler()`
+(meant to be hit repeatedly, e.g. by a `/openapi.json` route or Swagger UI
+polling it) caches the rendered bytes in `d.cache`, cleared by `Add` and
+`Sync`. There's no generation counter or TTL, only "did something call
+`d.cache = nil`." This is a real, deliberate design (an earlier version simply
+recomputed on every call — correct but wasteful) with a real failure mode: any
+future method that mutates `d.paths`, or any other field `build()` reads,
+without also clearing `d.cache` produces a served spec that's silently frozen
+at whatever it looked like on the first request after that change. Treat a new
+`Document` mutator the same way `error-metadata-full-path` treats a new
+`errors.Error` field — trace it through to every place that needs to know.
+
+## openapi's nullable `$ref` needs `anyOf`, not a sibling `type`
+
+`Schema.MarshalJSON` (`openapi/schema.go`) folds a nullable field into
+`"type": ["<type>", "null"]` — except when the schema is a `$ref` (a pointer
+to a named struct, e.g. `Owner *Address`), where it instead emits
+`{"anyOf": [{"$ref": ...}, {"type": "null"}]}`. This isn't stylistic: OpenAPI
+tooling doesn't reliably honor a `"type"` keyword sitting next to `"$ref"` in
+the same schema object, so that combination silently fails to convey
+nullability at all — which is exactly the bug an early version of this code
+had (caught during the PR that introduced the package, before it ever
+shipped). If `MarshalJSON`'s three branches (concrete type, `$ref`,
+unconstrained/empty schema) ever get collapsed or "simplified" into one code
+path, re-check this specific case first.
+
+## otel's route pattern already includes the HTTP method
+
+`otel.defaultSpanName` (`otel/options.go`) names spans and metrics after
+`r.Pattern` — the route pattern `http.ServeMux`/`router.Router` matched — to
+keep cardinality low (one series per route shape, not per resource ID). The
+trap: `r.Pattern` for a method-specific route (the normal case) is already
+`"GET /users/{id}"`, not `"/users/{id}"` — Go's enhanced `ServeMux` patterns
+embed the method. A naive `r.Method + " " + r.Pattern` therefore produces
+`"GET GET /users/{id}"`. This is not a hypothetical: it's exactly what this
+module's own middleware test caught before its first tagged release. The
+current code only prepends the method when `r.Pattern` doesn't already start
+with it (a route registered without a method prefix, matching every method,
+has no method embedded in its pattern). Any rewrite of this function needs to
+preserve that distinction, and any rewrite that goes back to naming
+spans/metrics after `r.URL.Path` reintroduces the unbounded-cardinality
+problem this design exists to avoid.
+
+## otel's OpenTelemetry globals default to no-ops — that's not a bug to "fix"
+
+`otel.newConfig` (`otel/options.go`) defaults `TracerProvider`, `MeterProvider`,
+and the propagator to `otel.GetTracerProvider()` / `otel.GetMeterProvider()` /
+`otel.GetTextMapPropagator()` — all of which are genuine no-ops in the
+OpenTelemetry API until a caller configures real ones. This module follows
+that convention deliberately rather than installing a real propagator behind
+the scenes. In practice this means `Transport`/`Middleware` won't inject or
+extract trace headers at all unless something upstream called
+`otel.SetTextMapPropagator(...)` globally, or the call site passed
+`WithPropagator(...)` explicitly — both this module's own tests and
+`otel/README.md`'s quick-start do the latter/former respectively. If a test or
+example looks like propagation "isn't working," the fix is almost always a
+missing propagator at the call site, not a change to the default.

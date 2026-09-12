@@ -3,8 +3,8 @@
   "commentTypes": ["logic", "syntax", "style"],
   "triggerOnUpdates": true,
   "statusCheck": true,
-  "ignorePatterns": "**/mock_*.go\n**/*_mock.go\n**/testdata/**\n**/go.sum\n**/vendor/**\n**/node_modules/**\nCHANGELOG.md\napikit-website/dist/**\napikit-website/node_modules/**\nbenchmark/**",
-  "instructions": "apikit is a Go toolkit for building REST APIs (github.com/KARTIKrocks/apikit): request binding/validation, response envelopes, middleware, an HTTP client, a router, graceful server shutdown, health checks, config loading, a SQL query builder, and a generic row scanner. It has zero mandatory runtime dependencies — every top-level directory is an independently-importable package, and a user importing one package must not transitively pull in another. Prioritize public-API stability, cross-package decoupling, and correctness of the sqlbuilder/dbx/router/middleware packages over style. See AGENTS.md for repo conventions and .greptile/rules.md for pattern rationale and worked examples from real bugs fixed in this codebase.",
+  "ignorePatterns": "**/mock_*.go\n**/*_mock.go\n**/testdata/**\n**/go.sum\n**/vendor/**\n**/node_modules/**\n**/CHANGELOG.md\napikit-website/dist/**\napikit-website/node_modules/**\nbenchmark/**",
+  "instructions": "apikit is a Go toolkit for building REST APIs (github.com/KARTIKrocks/apikit): request binding/validation, response envelopes, middleware, an HTTP client, a router, graceful server shutdown, health checks, config loading, a SQL query builder, a generic row scanner, and OpenAPI 3.1 document generation (openapi/). The core module has zero mandatory runtime dependencies — every top-level directory in it is an independently-importable package, and a user importing one package must not transitively pull in another (openapi/'s import of router/ is the one established exception — see the package-decoupling rule). Real OpenTelemetry integration ships separately as the otel/ submodule — its own go.mod, tagged independently as otel/vX.Y.Z — specifically so its third-party dependency never reaches the core module; see otel/.greptile/config.json, which relaxes the core-only rules there. Prioritize public-API stability, cross-package decoupling, and correctness of the sqlbuilder/dbx/router/middleware packages over style. See AGENTS.md for repo conventions and .greptile/rules.md for pattern rationale and worked examples from real bugs fixed in this codebase.",
   "rules": [
     {
       "id": "sql-identifier-injection",
@@ -32,14 +32,38 @@
     },
     {
       "id": "zero-dependency-core",
-      "rule": "Do not add a new third-party runtime dependency to go.mod without it being explicitly requested and justified — zero mandatory dependencies is a stated design goal (AGENTS.md). This applies to every package directory, not just a designated 'core'.",
+      "rule": "Do not add a new third-party runtime dependency to go.mod without it being explicitly requested and justified — zero mandatory dependencies is a stated design goal (AGENTS.md) for the core github.com/KARTIKrocks/apikit module. This applies to every package directory in that module, not just a designated 'core'. Exception: the otel/ submodule is a separate Go module (its own go.mod) that exists specifically to add real go.opentelemetry.io/otel dependencies without affecting the core module — this rule is disabled there via otel/.greptile/config.json, don't re-flag it.",
       "scope": ["*.go", "**/*.go", "go.mod"],
       "severity": "high"
     },
     {
       "id": "package-decoupling",
-      "rule": "Each top-level directory (errors/, request/, response/, middleware/, httpclient/, router/, server/, health/, config/, sqlbuilder/, dbx/, apitest/) is meant to be independently importable. Flag a new import that makes one of these packages depend on another where it previously didn't (e.g. errors/ importing sqlbuilder/), since it breaks a user's ability to import only what they need.",
+      "rule": "Each top-level directory in the core module (errors/, request/, response/, middleware/, httpclient/, router/, server/, health/, config/, sqlbuilder/, dbx/, apitest/, openapi/) is meant to be independently importable — a user importing one shouldn't be forced to pull in another it didn't ask for. openapi/ is a deliberate, established exception in one direction: it imports router/ (Document.Sync walks a router.Router's registered routes) — don't flag that specific import. Do flag any new cross-import between these packages that didn't previously exist (e.g. errors/ importing sqlbuilder/), including openapi/ picking up a new import beyond router/ (e.g. reaching into sqlbuilder/ or httpclient/) without justification. The otel/ submodule is not part of this list — it's a separate module whose entire purpose is bridging several of these together (middleware/, health/, router/) plus a real OpenTelemetry dependency, so this rule doesn't apply there either.",
       "scope": ["**/*.go"],
+      "severity": "medium"
+    },
+    {
+      "id": "openapi-cache-invalidation",
+      "rule": "openapi.Document caches its rendered JSON (document.go: the cache field) after the first Handler()/JSON() call; the cache has no TTL or generation check, only explicit invalidation. Add and Sync both clear it after mutating d.paths. Any new mutating method added to Document, or any new way to change what it renders, must also clear d.cache — otherwise a served spec (e.g. an /openapi.json handler) silently goes stale after the first request following that mutation. This is not hypothetical: an early version of this package recomputed the JSON on every call (safe but wasteful); the cache was added deliberately and must stay paired with invalidation everywhere paths/operations can change.",
+      "scope": ["openapi/document.go"],
+      "severity": "high"
+    },
+    {
+      "id": "openapi-nullable-ref-schema",
+      "rule": "Schema.MarshalJSON (openapi/schema.go) has three distinct nullable-encoding branches and they are not interchangeable: a schema with a concrete Type folds Nullable into `type: [T, \"null\"]`; a `$ref` schema instead wraps as `{\"anyOf\": [{\"$ref\":...}, {\"type\":\"null\"}]}`, because OpenAPI/JSON-Schema tooling does not reliably honor a sibling \"type\" keyword next to \"$ref\"; an unconstrained schema (no Type, no Ref) needs no change since it already matches null. A change that merges these branches or drops the $ref special case will silently mark a nullable pointer-to-struct field (e.g. `Owner *Address`) as non-nullable in the generated spec — this is a real bug that was caught and fixed during this package's initial review, not a hypothetical.",
+      "scope": ["openapi/schema.go", "openapi/types.go"],
+      "severity": "medium"
+    },
+    {
+      "id": "otel-span-name-cardinality",
+      "rule": "otel.defaultSpanName (otel/options.go) must not unconditionally prepend r.Method to r.Pattern: Go's http.ServeMux/router.Router route patterns already embed the method for method-specific routes (e.g. r.Pattern == \"GET /users/{id}\"), so naively doing r.Method + \" \" + r.Pattern doubles it into \"GET GET /users/{id}\" — an actual bug this module's own tests caught before its first release. The current logic only prepends the method when r.Pattern doesn't already start with \"<method> \" (a route registered to match every method has no method prefix in its pattern). Also flag any change that names spans/metrics after the raw r.URL.Path instead of the matched route pattern — that reintroduces unbounded cardinality (one series per resource ID), which is the entire reason Middleware uses r.Pattern in the first place.",
+      "scope": ["otel/options.go", "otel/middleware.go"],
+      "severity": "high"
+    },
+    {
+      "id": "otel-propagator-noop-default",
+      "rule": "OpenTelemetry's global TracerProvider/MeterProvider/TextMapPropagator all default to no-ops until a caller configures real ones, and otel.newConfig (otel/options.go) deliberately preserves that convention rather than silently installing a real propagator. Don't 'fix' a test or example where Transport/Middleware doesn't appear to inject/extract trace headers by changing this default — fix the test/example to pass WithPropagator(...) explicitly (or call otel.SetTextMapPropagator globally), which is what the package's own tests and otel/README.md do.",
+      "scope": ["otel/**/*.go"],
       "severity": "medium"
     },
     {

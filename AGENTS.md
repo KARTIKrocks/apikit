@@ -7,8 +7,12 @@ Guidance for AI coding agents working in the **apikit** repository.
 `apikit` is a production-ready Go toolkit for building REST APIs, published as
 `github.com/KARTIKrocks/apikit`. It targets **Go 1.22+** and has **zero mandatory
 runtime dependencies** — it works with any `net/http`-compatible router. Keeping
-the dependency footprint at zero is a core design goal: do not add third-party
-dependencies to `go.mod` without explicit approval.
+the dependency footprint at zero is a core design goal for this module: do not
+add third-party dependencies to its `go.mod` without explicit approval.
+
+The one deliberate exception is `otel/` (see [Submodules](#submodules) below):
+it needs the real OpenTelemetry SDK, so it ships as a **separate Go module**
+with its own `go.mod` — that dependency never reaches this one.
 
 ## Repository layout
 
@@ -27,10 +31,44 @@ directory is one package:
 - `sqlbuilder/` — Fluent SQL query builder for PostgreSQL, MySQL, SQLite (JOINs, CTEs, UNION, upsert)
 - `dbx/` — Generic row scanner for `database/sql` that maps rows to structs via `db` tags
 - `apitest/` — Fluent test helpers for recording and asserting HTTP handler responses
+- `openapi/` — OpenAPI 3.1 document generation from request/response struct tags, plus a Swagger UI handler
 - `examples/`, `playground/` — Example and scratch code (excluded from strict linting)
 
 Packages should stay decoupled — a user importing only `errors` should not pull
 in `sqlbuilder`. Avoid introducing cross-package imports that break this.
+`openapi/` is the one established exception: it imports `router/` (its `Sync`
+method walks a registered `router.Router`) — that's intentional, not a
+violation to flag.
+
+## Submodules
+
+Some needs can't be met without a third-party dependency — most notably real
+OpenTelemetry interop. Rather than pull that into the core module, those ship
+as **separate Go modules** under this repo, each with its own `go.mod`,
+`go.sum`, `README.md`, `CHANGELOG.md`, and version history (tagged as
+`<module-dir>/vX.Y.Z`, e.g. `otel/v0.1.0` — not a plain `vX.Y.Z` tag).
+
+- `otel/` (`github.com/KARTIKrocks/apikit/otel`) — real OpenTelemetry tracing
+  and metrics middleware, an `httpclient` transport for outbound propagation,
+  and a `health` check span wrapper. Requires Go 1.25+ (higher than the core
+  module's Go 1.22+, pinned by the OpenTelemetry SDK's own requirement).
+
+Each submodule has a `replace github.com/KARTIKrocks/apikit => ../` directive
+in its `go.mod` for local development — that's intentional and permanent, not
+a leftover to clean up before release: `replace` directives are only honored
+when that module is the *main* module being built, so they're ignored (and
+harmless) once the submodule is fetched as a real dependency. Its `require`
+line still needs to point at a real, already-published core version, though
+— that's what a build actually resolves to for anyone who isn't building the
+submodule as the main module (verify with the `replace` line commented out
+before tagging a release).
+
+For cross-module local development (jump-to-definition across the core module
+and a submodule, building/testing both at once), create a local workspace —
+`go work init . ./otel` — rather than relying on each module's own `replace`.
+It's gitignored (`go.work`/`go.work.sum`) and never committed: CI builds and
+tests each module independently via its own `go.mod` (with `GOWORK=off`),
+matching what a real consumer sees.
 
 ## Build, test, and lint
 
@@ -50,6 +88,11 @@ Run `make fmt` after editing and `make test` before considering work done. Tests
 run with the **race detector** — new concurrent code must be race-clean. CI runs
 `vet`, `lint`, and `test` (see `.github/workflows/ci.yml`), plus CodeQL.
 
+These targets operate on the core module only. A submodule (`otel/`) has its
+own `go.mod` and isn't reached by `./...` from the repo root — run the same
+`go build`/`go vet`/`go test -race`/`golangci-lint run` commands from inside
+it directly (CI does this with `GOWORK=off`; see [Submodules](#submodules)).
+
 ## Conventions
 
 - **Formatting:** `gofmt` + `goimports`. Never hand-format; run `make fmt`.
@@ -66,7 +109,9 @@ run with the **race detector** — new concurrent code must be race-clean. CI ru
   plain `fmt.Errorf`, so the framework can render consistent responses.
 - **Public API:** These packages are consumed by external users. Treat exported
   identifiers as a public contract — avoid breaking changes; document additions.
-  Record notable changes in `CHANGELOG.md` (Keep a Changelog style).
+  Record notable changes in `CHANGELOG.md` (Keep a Changelog style) — a
+  submodule keeps its own (e.g. `otel/CHANGELOG.md`), since it's versioned
+  independently.
 - **Docs:** Keep package `doc.go`, `README.md` examples, and code in sync when
   behavior changes. When a package's public API changes, also update the
   documentation website (see below) so it does not drift from the code.
