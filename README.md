@@ -24,6 +24,7 @@ A production-ready Go toolkit for building REST APIs. Zero mandatory dependencie
 - **`sqlbuilder`** — Fluent SQL query builder for PostgreSQL, MySQL, and SQLite with JOINs, CTEs, UNION, upsert, and `request` package integration
 - **`dbx`** — Generic row scanner for `database/sql` — eliminates scan boilerplate, maps rows to structs via `db` tags, integrates with `sqlbuilder`
 - **`apitest`** — Fluent test helpers for recording and asserting HTTP handler responses
+- **`openapi`** — OpenAPI 3.1 document generation from request/response struct tags, plus a Swagger UI handler — no annotation comments or CLI generator required
 
 ## Install
 
@@ -995,6 +996,65 @@ tx.Commit()
 
 Column matching is order-independent. Unmatched result columns are silently discarded. Embedded structs (including pointer embeds) are supported. Type mappings are cached per-type via `sync.Map`.
 
+### openapi
+
+Generate an OpenAPI 3.1 document straight from the `json`/`validate` tags on your
+existing request/response types — zero third-party dependencies, no annotation
+comments or CLI generator to run.
+
+```go
+import "github.com/KARTIKrocks/apikit/openapi"
+
+type CreateUserReq struct {
+    Name  string `json:"name"  validate:"required,min=2,max=100"`
+    Email string `json:"email" validate:"required,email"`
+    Role  string `json:"role"  validate:"omitempty,oneof=admin user mod"`
+}
+
+doc := openapi.New(openapi.Info{Title: "My API", Version: "1.0.0"})
+
+doc.Add("POST", "/users", openapi.Operation{
+    Summary: "Create a user",
+    Tags:    []string{"users"},
+    Request: CreateUserReq{}, // schema derived by reflection, not by calling this
+    Responses: map[int]openapi.Response{
+        201: {Description: "Created", Body: User{}},
+        422: {Description: "Validation failed"},
+    },
+})
+
+// Path params in the route pattern (e.g. "{id}") are added automatically.
+doc.Add("GET", "/users/{id}", openapi.Operation{
+    Summary:   "Get a user",
+    Responses: map[int]openapi.Response{200: {Body: User{}}},
+})
+
+// Fill in any route the router knows about that Add hasn't described yet,
+// so the spec never silently drifts out of sync with the router.
+doc.Sync(r)
+
+r.GetFunc("/openapi.json", doc.Handler())          // serves the JSON spec
+r.GetFunc("/docs", doc.SwaggerUIHandler("/openapi.json")) // Swagger UI (loads assets from a CDN)
+```
+
+**Struct tag → schema mapping** (mirrors `request.ValidateStruct`'s rule set):
+
+| `validate` tag                | Schema effect                              |
+| ------------------------------ | ------------------------------------------- |
+| `required`                     | added to the parent's `required` list       |
+| `min=N` / `max=N`               | `minLength`/`maxLength` (string/slice/map) or `minimum`/`maximum` (numeric) |
+| `gte=N` / `lte=N`               | alias of `min`/`max`                        |
+| `gt=N` / `lt=N`                 | `exclusiveMinimum`/`exclusiveMaximum`       |
+| `oneof=a b c`                   | `enum`                                      |
+| `email` / `url` / `uuid`        | `format`                                    |
+| `e164` / `alpha` / `alphanum` / `numeric` / `contains=X` / `startswith=X` / `endswith=X` | `pattern` (regex) |
+
+Nested structs become named components (`#/components/schemas/...`), embedded
+structs are flattened like `encoding/json` promotes them, and pointer fields
+are marked nullable. Cross-field/programmatic validation
+(`request.NewValidation()`) has no schema representation, matching the tag
+engine's own documented scope.
+
 ### apitest
 
 Fluent test helpers for building requests and asserting responses against your handlers.
@@ -1036,19 +1096,36 @@ fmt.Println(env.Success, env.Message)
 | Principle             | How                                                            |
 | --------------------- | -------------------------------------------------------------- |
 | **stdlib compatible** | Works with `http.Handler`, `http.HandlerFunc`, any router      |
-| **Zero dependencies** | Core uses only the Go standard library                         |
+| **Zero dependencies** | The `github.com/KARTIKrocks/apikit` module uses only the Go standard library — see [Submodules](#submodules) below for opt-in packages that trade that off for real third-party interop |
 | **Generics**          | `Bind[T]`, `GetAuthUserAs[T]` for type safety                  |
 | **Interface-driven**  | `RateLimiter`, `Logger` interfaces — plug in your own backends |
 | **Composable**        | Each package is independently usable                           |
 | **Go 1.22+**          | Leverages enhanced `http.ServeMux` routing                     |
+
+## Submodules
+
+Some needs — real OpenTelemetry interop, most notably — can't be met without a
+third-party dependency. Rather than pull that into the core module, apikit
+ships those as **separate Go modules**, each with its own `go.mod` and version
+history. The core module never gains a dependency because of them; you only
+pay for what you `go get`.
+
+| Module                                 | What it adds                                                  |
+| --------------------------------------- | -------------------------------------------------------------- |
+| [`apikit/otel`](otel/README.md)         | Real OpenTelemetry tracing + metrics middleware, an `httpclient` transport for outbound propagation, and a `health` check wrapper — built on `go.opentelemetry.io/otel` |
+
+```bash
+go get github.com/KARTIKrocks/apikit/otel
+```
 
 ## Roadmap
 
 - [x] `health` — Health check endpoint builder with dependency checks
 - [x] `sqlbuilder` — Fluent SQL query builder with request package integration
 - [x] `dbx` — Generic row scanner for `database/sql` with `sqlbuilder` integration
+- [x] `openapi` — OpenAPI 3.1 document generation from request/response struct tags
+- [x] `observe` — OpenTelemetry integration (shipped as the separate `apikit/otel` module — see [Submodules](#submodules))
 - [ ] `ctxutil` — Typed context helpers
-- [ ] `observe` — OpenTelemetry integration
 
 ## License
 

@@ -1,0 +1,35 @@
+version: "2"
+
+# No run.go override here: unlike the root config's workaround for a
+# staticcheck SA5011 false positive at language version 1.22, this module's
+# own go.mod directive (currently go 1.25.0) is high enough that the false
+# positive doesn't apply — so this lets golangci-lint infer the version from
+# go.mod instead of hardcoding a value that would drift out of sync with it.
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+    - gocritic
+    - gocyclo
+    - revive
+  settings:
+    gocyclo:
+      min-complexity: 15
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
