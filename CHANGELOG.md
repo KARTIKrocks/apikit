@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-09-12
+
+### Added
+
+- **openapi** — new package that generates an OpenAPI 3.1 document by reflecting on the same `json`/`validate` struct tags `request.Bind[T]` and `request.ValidateStruct` already use, so a request/response type only needs to be described once. `Document.Add(method, path, Operation{...})` describes one operation's summary, tags, request body, and responses; `Document.Sync(r)` walks a `router.Router`'s registered routes and fills in any route that hasn't been described yet, so the spec can never silently drift out of sync with the router. Path parameters present in the route pattern (e.g. `{id}`) are added automatically. `Document.Handler()` serves the rendered spec as JSON (cached after the first render, invalidated by `Add`/`Sync`) and `Document.SwaggerUIHandler(specURL)` serves a Swagger UI page whose assets load from a CDN — no Go dependency involved, so the package ships in the core module and stays zero-dependency
+- New `apikit/otel` submodule (own `go.mod`, `go get github.com/KARTIKrocks/apikit/otel`) providing real OpenTelemetry tracing/metrics middleware, an `httpclient` transport for outbound trace propagation, and a `health` check span wrapper — see [otel/CHANGELOG.md](otel/CHANGELOG.md) for its own release notes
+
+### Notes
+
+- The `github.com/KARTIKrocks/apikit` module itself remains zero-dependency. `otel` is opt-in, lives in its own `go.mod`, and is versioned independently (tagged as `otel/vX.Y.Z`)
+
 ## [0.27.1] - 2026-08-13
 
 ### Fixed
