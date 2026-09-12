@@ -15,6 +15,8 @@ import SqlbuilderDocs from './content/sqlbuilder';
 import DbxDocs from './content/dbx';
 import HttpclientDocs from './content/httpclient';
 import ApitestDocs from './content/apitest';
+import OpenapiDocs from './content/openapi';
+import OtelDocs from './content/otel';
 
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -40,6 +42,8 @@ export default function App() {
           <DbxDocs />
           <HttpclientDocs />
           <ApitestDocs />
+          <OpenapiDocs />
+          <OtelDocs />
 
           <footer className="py-10 text-center text-sm text-text-muted border-t border-border mt-10">
             <p>

@@ -4,7 +4,7 @@ const features = [
   { title: 'Zero Dependencies', desc: 'Core uses only the Go standard library' },
   { title: 'Stdlib Compatible', desc: 'Works with http.Handler and any router' },
   { title: 'Type-Safe Generics', desc: 'Bind[T], QueryAll[T] for compile-time safety' },
-  { title: '12 Modules', desc: 'Everything from routing to SQL building' },
+  { title: '13 Modules', desc: 'Everything from routing to SQL building' },
   { title: 'Go 1.22+', desc: 'Leverages enhanced http.ServeMux routing' },
   { title: 'Production Ready', desc: 'Graceful shutdown, circuit breakers, rate limiting' },
 ];

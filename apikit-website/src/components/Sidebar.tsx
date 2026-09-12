@@ -161,12 +161,38 @@ const sections: Section[] = [
       { id: 'apitest-decoding', label: 'Decoding' },
     ],
   },
+  {
+    id: 'openapi',
+    label: 'openapi',
+    children: [
+      { id: 'openapi-basics', label: 'Describing Operations' },
+      { id: 'openapi-schema', label: 'Struct Tag Mapping' },
+      { id: 'openapi-sync', label: 'Router Sync' },
+      { id: 'openapi-serving', label: 'Serving the Spec' },
+    ],
+  },
+];
+
+// Separate Go modules with their own go.mod, versioned independently from
+// the packages above — rendered under their own sidebar group.
+const submodules: Section[] = [
+  {
+    id: 'otel',
+    label: 'otel',
+    children: [
+      { id: 'otel-setup', label: 'Install & Setup' },
+      { id: 'otel-middleware', label: 'Server Middleware' },
+      { id: 'otel-transport', label: 'Outbound Requests' },
+      { id: 'otel-health', label: 'Health Checks' },
+      { id: 'otel-options', label: 'Options' },
+    ],
+  },
 ];
 
 // Collect all observable IDs (module + subsection)
 const allIds: string[] = [];
 const childToParent = new Map<string, string>();
-sections.forEach((s) => {
+[...sections, ...submodules].forEach((s) => {
   allIds.push(s.id);
   s.children?.forEach((c) => {
     allIds.push(c.id);
@@ -191,7 +217,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     const parent = childToParent.get(activeId);
     if (parent) {
       setExpandedId(parent);
-    } else if (sections.find((s) => s.id === activeId && s.children)) {
+    } else if ([...sections, ...submodules].find((s) => s.id === activeId && s.children)) {
       setExpandedId(activeId);
     }
   }, [activeId]);
@@ -260,73 +286,80 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wider px-3 mt-4 mb-2">
             Modules
           </p>
-          {sections.slice(1).map((section) => {
-            const isExpanded = expandedId === section.id;
-            const isActiveModule = activeModuleId === section.id;
-            const hasChildren = !!section.children?.length;
+          {sections.slice(1).map(renderSection)}
 
-            return (
-              <div key={section.id} className="mb-0.5">
-                <a
-                  href={`#${section.id}`}
-                  onClick={(e) => {
-                    if (hasChildren) {
-                      e.preventDefault();
-                      handleModuleClick(section.id, true);
-                      document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth' });
-                    } else {
-                      onClose();
-                    }
-                  }}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded-md text-sm font-mono transition-colors ${
-                    isActiveModule
-                      ? 'bg-primary/15 text-primary font-medium'
-                      : 'text-text-muted hover:text-text hover:bg-bg-card'
-                  }`}
-                >
-                  <span>{section.label}</span>
-                  {hasChildren && (
-                    <svg
-                      className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${
-                        isExpanded ? 'rotate-90' : ''
-                      }`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 5l7 7-7 7"
-                      />
-                    </svg>
-                  )}
-                </a>
-
-                {hasChildren && isExpanded && (
-                  <div className="ml-3 mt-0.5 border-l border-border/50">
-                    {section.children!.map((child) => (
-                      <a
-                        key={child.id}
-                        href={`#${child.id}`}
-                        onClick={handleSubItemClick}
-                        className={`block pl-4 pr-3 py-1 text-xs transition-colors ${
-                          activeId === child.id
-                            ? 'text-primary font-medium'
-                            : 'text-text-muted hover:text-text'
-                        }`}
-                      >
-                        {child.label}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wider px-3 mt-4 mb-2">
+            Submodules
+          </p>
+          {submodules.map(renderSection)}
         </nav>
       </aside>
     </>
   );
+
+  function renderSection(section: Section) {
+    const isExpanded = expandedId === section.id;
+    const isActiveModule = activeModuleId === section.id;
+    const hasChildren = !!section.children?.length;
+
+    return (
+      <div key={section.id} className="mb-0.5">
+        <a
+          href={`#${section.id}`}
+          onClick={(e) => {
+            if (hasChildren) {
+              e.preventDefault();
+              handleModuleClick(section.id, true);
+              document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth' });
+            } else {
+              onClose();
+            }
+          }}
+          className={`flex items-center justify-between px-3 py-1.5 rounded-md text-sm font-mono transition-colors ${
+            isActiveModule
+              ? 'bg-primary/15 text-primary font-medium'
+              : 'text-text-muted hover:text-text hover:bg-bg-card'
+          }`}
+        >
+          <span>{section.label}</span>
+          {hasChildren && (
+            <svg
+              className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${
+                isExpanded ? 'rotate-90' : ''
+              }`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          )}
+        </a>
+
+        {hasChildren && isExpanded && (
+          <div className="ml-3 mt-0.5 border-l border-border/50">
+            {section.children!.map((child) => (
+              <a
+                key={child.id}
+                href={`#${child.id}`}
+                onClick={handleSubItemClick}
+                className={`block pl-4 pr-3 py-1 text-xs transition-colors ${
+                  activeId === child.id
+                    ? 'text-primary font-medium'
+                    : 'text-text-muted hover:text-text'
+                }`}
+              >
+                {child.label}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 }
