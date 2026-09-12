@@ -12,7 +12,7 @@ require (
 )
 
 require (
-	github.com/KARTIKrocks/apikit v0.0.0
+	github.com/KARTIKrocks/apikit v0.28.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/metric v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
