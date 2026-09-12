@@ -16,6 +16,13 @@ coverage.html
 go.work
 go.work.sum
 
+# `go build .` / `go build ./...` in an examples/<name>/ directory (run
+# without -o) writes a binary named after the directory, with no extension.
+# Add a line here for each example directory.
+examples/complete/complete
+examples/openapi/openapi
+examples/otel/otel
+
 # IDE
 .idea/
 .vscode/
