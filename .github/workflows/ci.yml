@@ -24,8 +24,12 @@ env:
   GOWORK: "off"
 
 jobs:
+  common-mk:
+    uses: KARTIKrocks/go-build-tools/.github/workflows/check-common-mk.yml@6023c2444c2dbaf87b4aba9570e98fae59caf242 # pinned; bump deliberately
+
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         go-version: ['1.22', '1.23', '1.24', '1.25', '1.26']
@@ -43,6 +47,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -58,18 +63,58 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
+      - id: golangci-lint-version
+        run: echo "version=$(make print-golangci-lint-version)" >> "$GITHUB_OUTPUT"
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.11
+          version: ${{ steps.golangci-lint-version.outputs.version }}
           args: --timeout=5m
+
+  vuln:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          # govulncheck also scans the standard library of the Go in use, so a
+          # cached older patch release fails on stdlib advisories already fixed.
+          check-latest: true
+      - run: make vuln
+
+  # Single required check for branch protection. `if: always()` is load-bearing:
+  # without it this job is skipped when a dependency fails, and a skipped
+  # required check can read as passing. `bench` is excluded: it only runs on
+  # main, so on a pull request it is skipped and would drag the gate down.
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs: [common-mk, test, coverage, lint, vuln, otel, otel-lint]
+    steps:
+      - name: Verify every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"'
+          # common-mk only runs on pull requests, so a skip is expected on push.
+          if echo "$NEEDS" | jq -e 'to_entries | any(.[]; .value.result != "success" and (.key != "common-mk" or .value.result != "skipped"))' >/dev/null; then
+            echo "::error::one or more CI jobs did not succeed"
+            exit 1
+          fi
+          echo "all jobs succeeded"
 
   bench:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v7
@@ -80,6 +125,7 @@ jobs:
 
   otel:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         go-version: ['1.25', '1.26']
@@ -103,13 +149,16 @@ jobs:
 
   otel-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
+      - id: golangci-lint-version
+        run: echo "version=$(make print-golangci-lint-version)" >> "$GITHUB_OUTPUT"
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.11
+          version: ${{ steps.golangci-lint-version.outputs.version }}
           args: --timeout=5m
           working-directory: otel
