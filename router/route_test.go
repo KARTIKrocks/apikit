@@ -317,7 +317,7 @@ func TestURLOddParamsPanics(t *testing.T) {
 
 	r := New()
 	r.Get("/test/{id}", noopHandler).Name("test")
-	r.URL("test", "id")
+	r.URL("test", "id") //nolint:staticcheck // SA5012: odd argument count is the case under test
 }
 
 func TestURLMissingParamPanics(t *testing.T) {

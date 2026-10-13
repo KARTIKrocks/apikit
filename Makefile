@@ -1,7 +1,6 @@
-GOLANGCI_LINT_VERSION := v2.10.1
-GOIMPORTS_VERSION := v0.22.0
+include common.mk
 
-.PHONY: fmt all test vet build lint cover clean setup ci
+.PHONY: fmt all test vet build lint vuln cover clean setup ci
 
 all: fmt vet lint test build
 
@@ -9,17 +8,6 @@ all: fmt vet lint test build
 fmt:
 	gofmt -w .
 	goimports -w .
-
-## Install development tools (skips if already present)
-setup:
-	@command -v golangci-lint >/dev/null 2>&1 || { \
-		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."; \
-		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
-	}
-	@command -v goimports >/dev/null 2>&1 || { \
-		echo "Installing goimports $(GOIMPORTS_VERSION)..."; \
-		go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION); \
-	}
 
 ## Run all tests with race detector
 test:
@@ -37,6 +25,13 @@ vet:
 lint: setup
 	golangci-lint run ./...
 
+## Scan for known vulnerabilities in the module's dependencies, filtered to
+## advisories this code actually reaches.
+##
+## Needs network access — the advisory database is fetched on every run.
+vuln: setup
+	govulncheck ./...
+
 ## Build all packages
 build:
 	go build ./...
@@ -51,5 +46,5 @@ cover:
 clean:
 	rm -f coverage.out coverage.html
 
-## CI pipeline: vet, lint, test
-ci: vet lint test
+## CI pipeline: vet, lint, test, vulnerability-scan
+ci: vet lint test vuln
