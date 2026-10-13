@@ -29,6 +29,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         go-version: ['1.22', '1.23', '1.24', '1.25', '1.26']
@@ -46,6 +47,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -61,6 +63,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -75,6 +78,7 @@ jobs:
 
   vuln:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -82,8 +86,32 @@ jobs:
           go-version: "1.26"
       - run: make vuln
 
+  # Single required check for branch protection. `if: always()` is load-bearing:
+  # without it this job is skipped when a dependency fails, and a skipped
+  # required check can read as passing. `bench` is excluded: it only runs on
+  # main, so on a pull request it is skipped and would drag the gate down.
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs: [common-mk, test, coverage, lint, vuln, otel, otel-lint]
+    steps:
+      - name: Verify every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"'
+          # common-mk only runs on pull requests, so a skip is expected on push.
+          if echo "$NEEDS" | jq -e 'to_entries | any(.[]; .value.result != "success" and (.key != "common-mk" or .value.result != "skipped"))' >/dev/null; then
+            echo "::error::one or more CI jobs did not succeed"
+            exit 1
+          fi
+          echo "all jobs succeeded"
+
   bench:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v7
@@ -94,6 +122,7 @@ jobs:
 
   otel:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         go-version: ['1.25', '1.26']
@@ -117,6 +146,7 @@ jobs:
 
   otel-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
