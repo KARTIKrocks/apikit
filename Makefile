@@ -1,5 +1,8 @@
 include common.mk
 
+# Go modules in this repo; the nested ones are not covered by ./... at the root.
+MODULES := . ./otel ./examples/otel
+
 .PHONY: fmt all test vet build lint vuln cover clean setup ci
 
 all: fmt vet lint test build
@@ -25,12 +28,15 @@ vet:
 lint: setup
 	golangci-lint run ./...
 
-## Scan for known vulnerabilities in the module's dependencies, filtered to
-## advisories this code actually reaches.
+## Scan every module (root, otel, examples/otel) for known vulnerabilities,
+## filtered to advisories this code actually reaches.
 ##
 ## Needs network access — the advisory database is fetched on every run.
 vuln: setup
-	govulncheck ./...
+	@for mod in $(MODULES); do \
+		echo "==> Scanning $$mod"; \
+		(cd $$mod && govulncheck ./...) || exit 1; \
+	done
 
 ## Build all packages
 build:
